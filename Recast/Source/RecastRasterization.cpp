@@ -250,6 +250,7 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	const float by = bmax[1] - bmin[1];
 	
 	// Calculate the bounding box of the triangle.
+	// 计算出三角形的包围盒
 	rcVcopy(tmin, v0);
 	rcVcopy(tmax, v0);
 	rcVmin(tmin, v1);
@@ -258,6 +259,8 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	rcVmax(tmax, v2);
 	
 	// If the triangle does not touch the bbox of the heightfield, skip the triagle.
+	// 判断三角形的包围盒是否与高度场的包围盒相交
+	// 如果不相交，则这个三角形可以直接略过，用于构建 tile
 	if (!overlapBounds(bmin, bmax, tmin, tmax))
 		return true;
 	
@@ -405,7 +408,9 @@ bool rcRasterizeTriangles(rcContext* ctx, const float* verts, const int /*nv*/,
 	
 	const float ics = 1.0f/solid.cs;
 	const float ich = 1.0f/solid.ch;
+
 	// Rasterize triangles.
+	// 遍历所有三角形，进行光栅化处理
 	for (int i = 0; i < nt; ++i)
 	{
 		const float* v0 = &verts[tris[i*3+0]*3];
