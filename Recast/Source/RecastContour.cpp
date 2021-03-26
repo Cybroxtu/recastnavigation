@@ -118,14 +118,27 @@ static void walkContour(int x, int y, int i,
 	int iter = 0;
 	while (++iter < 40000)
 	{
+		// 注意这里为真代表这个方向上没有邻接span，或者邻接span不属于同一个region
 		if (flags[i] & (1 << dir))
 		{
 			// Choose the edge corner
 			bool isBorderVertex = false;
 			bool isAreaBorder = false;
 			int px = x;
+			// CornerHeight 是 当前span、左、左下、下 四个方向里的最大高度
+			// ?为什么只计算左下方？
+			// isBorderVertex，是否是边缘上的节点
+			// 含义是对于组成一个正方形的相邻四个 span，如果横平竖直方向上，两两的连线正好分属两个不同的区域
+			// 则可以认为这几个点正好在边缘上
+			// A B
+			// C D
+			// AB|CD
+			// BD|CA
+			// DC|AB
+			// CA|BD
 			int py = getCornerHeight(x, y, i, dir, chf, isBorderVertex);
 			int pz = y;
+			// px py pz  为什么这里这么赋值？
 			switch(dir)
 			{
 				case 0: pz++; break;
@@ -140,13 +153,15 @@ static void walkContour(int x, int y, int i,
 				const int ay = y + rcGetDirOffsetY(dir);
 				const int ai = (int)chf.cells[ax+ay*chf.width].index + rcGetCon(s, dir);
 				r = (int)chf.spans[ai].reg;
+
+				// 如果当前 span 指定方向上的邻接 span 不属于同一个 region，则当前 span 是 region 边缘
 				if (area != chf.areas[ai])
 					isAreaBorder = true;
 			}
 			if (isBorderVertex)
-				r |= RC_BORDER_VERTEX;
+				r |= RC_BORDER_VERTEX; // 65536 - 0x1 0000
 			if (isAreaBorder)
-				r |= RC_AREA_BORDER;
+				r |= RC_AREA_BORDER; // 131072 - 0x2 0000
 			points.push(px);
 			points.push(py);
 			points.push(pz);
@@ -157,6 +172,8 @@ static void walkContour(int x, int y, int i,
 		}
 		else
 		{
+			// 如果对应方向有邻接 span
+			// 则在这里逆时针转向下一个 span
 			int ni = -1;
 			const int nx = x + rcGetDirOffsetX(dir);
 			const int ny = y + rcGetDirOffsetY(dir);
@@ -176,7 +193,9 @@ static void walkContour(int x, int y, int i,
 			i = ni;
 			dir = (dir+3) & 0x3;	// Rotate CCW
 		}
-		
+
+		// 绕回到起始点，可以结束循环
+		// 注意这里绕回来的方向和起始方向不一致的话，需要继续循环
 		if (starti == i && startDir == dir)
 		{
 			break;
@@ -211,6 +230,8 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 							const float maxError, const int maxEdgeLen, const int buildFlags)
 {
 	// Add initial points.
+	// 这里遍历轮廓边缘格子，从 r 中取出低 16 位里的 region id
+	// 找到第一个 region id 不为 0 的点
 	bool hasConnections = false;
 	for (int i = 0; i < points.size(); i += 4)
 	{
@@ -227,9 +248,16 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		// Add a new point to every location where the region changes.
 		for (int i = 0, ni = points.size()/4; i < ni; ++i)
 		{
+			// ii 是轮廓连线上，当前点 i 的下一个点的序号
 			int ii = (i+1) % ni;
+			// 判断当前点与下一个点是否属于同一个 region id
 			const bool differentRegs = (points[i*4+3] & RC_CONTOUR_REG_MASK) != (points[ii*4+3] & RC_CONTOUR_REG_MASK);
+			// 两个点一个是 area border 一个不是，证明当前是边界
+			// ? 两个点都是边界的情况？
 			const bool areaBorders = (points[i*4+3] & RC_AREA_BORDER) != (points[ii*4+3] & RC_AREA_BORDER);
+			// 这里为了简化什么？
+			// 条件取反一下，即为当 !differentRegs && !areaBorders 时，丢弃点
+			// 所以如果两个点：属于同一个region && （都不是 border 点 || 都是 border 点）时，可以忽略掉当前点（可以视为和下一个点合并了）
 			if (differentRegs || areaBorders)
 			{
 				simplified.push(points[i*4+0]);
@@ -302,6 +330,9 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		// Find maximum deviation from the segment.
 		float maxd = 0;
 		int maxi = -1;
+		// ci - current i
+		// cinc - c inc
+		// endi
 		int ci, cinc, endi;
 
 		// Traverse the segment in lexilogical order so that the
@@ -326,6 +357,7 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		if ((points[ci*4+3] & RC_CONTOUR_REG_MASK) == 0 ||
 			(points[ci*4+3] & RC_AREA_BORDER))
 		{
+			// 这里求出两个点连线上的点与连线的距离最大平方 maxd，以及距离最大的点 maxi
 			while (ci != endi)
 			{
 				float d = distancePtSeg(points[ci*4+0], points[ci*4+2], ax, az, bx, bz);
@@ -341,11 +373,15 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		
 		// If the max deviation is larger than accepted error,
 		// add new point, else continue to next segment.
+		// 如果距离超出最大误差距离，则在这个误差距离最大的地方插入一个中间点
+		// 然后下一次循环以这个点为起点继续
+		// 如果在误差距离以内，则直接从下一个点开始遍历
 		if (maxi != -1 && maxd > (maxError*maxError))
 		{
 			// Add space for the new point.
 			simplified.resize(simplified.size()+4);
 			const int n = simplified.size()/4;
+			// 将 i+1 后的点后移一个位置
 			for (int j = n-1; j > i; --j)
 			{
 				simplified[j*4+0] = simplified[(j-1)*4+0];
