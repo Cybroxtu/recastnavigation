@@ -955,6 +955,7 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 							   rcHeightfield& hf, rcCompactHeightfield& chf);
 
 /// Erodes the walkable area within the heightfield by the specified radius. 
+/// 根据寻路半径参数 walkableRadius，在边界和障碍处保留出一定的不可行走区域
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		radius	The radius of erosion. [Limits: 0 < value < 255] [Units: vx]
@@ -963,6 +964,8 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf);
 
 /// Applies a median filter to walkable area types (based on area id), removing noise.
+/// 平滑降噪处理，将一个 span 的 area id 设置为其九向（包含自身）邻接区域的中位数 area id
+/// area id 具有数值大小的意义吗？
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in,out]	chf		A populated compact heightfield.
@@ -970,6 +973,7 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf);
 bool rcMedianFilterWalkableArea(rcContext* ctx, rcCompactHeightfield& chf);
 
 /// Applies an area id to all spans within the specified bounding box. (AABB) 
+/// 将与 AABB 包围盒相交的可行走 open span 设置为给定的 area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		bmin	The minimum of the bounding box. [(x, y, z)]
@@ -980,6 +984,7 @@ void rcMarkBoxArea(rcContext* ctx, const float* bmin, const float* bmax, unsigne
 				   rcCompactHeightfield& chf);
 
 /// Applies the area id to the all spans within the specified convex polygon. 
+/// 将指定凸多边形范围内的所有可行走 span 标记为给定的 area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		verts	The vertices of the polygon [Fomr: (x, y, z) * @p nverts]
@@ -1003,6 +1008,7 @@ int rcOffsetPoly(const float* verts, const int nverts, const float offset,
 				 float* outVerts, const int maxOutVerts);
 
 /// Applies the area id to all spans within the specified cylinder.
+/// 将与 柱体 包围盒相交的可行走 open span 设置为给定的 area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		pos		The center of the base of the cylinder. [Form: (x, y, z)] 

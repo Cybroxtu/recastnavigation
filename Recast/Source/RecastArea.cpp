@@ -54,6 +54,8 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 	memset(dist, 0xff, sizeof(unsigned char)*chf.spanCount);
 	
 	// Mark boundary cells.
+	// 遍历所有的 open span，找出边界（不可行走区域、或者四方向上邻接任一不可行走区域）
+	// 将其 dist 标记为 0，表示和障碍相邻，供后续步骤根据 radius 进行处理
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -91,8 +93,20 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 	}
 	
 	unsigned char nd;
-	
+
+	// 开始所有剩余 span 的 dist 计算
+	// 这里每一个 span 与其上下左右四方向邻接 span 的距离为 2，斜向邻接的 span 距离为 3
+	// dist(span) = min(8 方向邻接某一 span 的距离 + 该邻接 span 到自己的距离)
+	// 为什么距离是 2、3？如果按 cell 中心点计算，两个邻接（非斜向）格子间的距离应该是 1，斜向应该是 sqrt(2)≈1.414
+	// 所以这里为了加速运算避免开根，直接按 * 2 计算，变成 2 和 2.818≈3？
+	// 这也是为什么下面的 thr 需要用 radius 乘以 2 来计算
+
 	// Pass 1
+	// 第一遍处理，这里对每一个 span 都会遍历其四个方向的邻接 span
+	// 在遍历其左、上邻接 span 时，会检查邻接 span 顺时针下一个方向的邻接 span
+	// 形成一个顺序： ←↖↑↗
+	// 但是斜向只有在四方向里有连接时才会进行判断
+	// 如果←没有邻接 span，那么↖也不会被判断
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -149,8 +163,15 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 			}
 		}
 	}
-	
+
+	// 对所有 span 的遍历拆成了两次进行
+	// 因为在正向遍历时，每一个 span 的左、左上、上、右上的节点一定是已经被处理过的，而左下、下、右下、右则是还没有被处理过的原始数据，所以不能进行计算；反向遍历则相反
+	// 所以第一次正向遍历，只处理每个节点的左、左上、上、右上
+	// 第二次反向遍历，只处理每个节点的左下、下、右下、右
+
 	// Pass 2
+	// 第二遍处理，注意这里 x y 反向了
+	// 邻接 span 遍历顺序为 →↘、↓↙
 	for (int y = h-1; y >= 0; --y)
 	{
 		for (int x = w-1; x >= 0; --x)
@@ -207,8 +228,9 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 			}
 		}
 	}
-	
-	const unsigned char thr = (unsigned char)(radius*2);
+
+	// 将与边界距离小于一定值的区域标记为不可行走
+	const unsigned char thr = (unsigned char)(radius*2); // 乘以了 2
 	for (int i = 0; i < chf.spanCount; ++i)
 		if (dist[i] < thr)
 			chf.areas[i] = RC_NULL_AREA;
