@@ -380,20 +380,21 @@ bool Sample_SoloMesh::handleBuild()
 	
 	const float* bmin = m_geom->getNavMeshBoundsMin();
 	const float* bmax = m_geom->getNavMeshBoundsMax();
-	const float* verts = m_geom->getMesh()->getVerts();
-	const int nverts = m_geom->getMesh()->getVertCount();
-	const int* tris = m_geom->getMesh()->getTris();
-	const int ntris = m_geom->getMesh()->getTriCount();
+	const float* verts = m_geom->getMesh()->getVerts();		// 输入 obj 文件里的所有顶点坐标数组
+	const int nverts = m_geom->getMesh()->getVertCount();	// 顶点总数
+	const int* tris = m_geom->getMesh()->getTris();			// 三角形的顶点数组，元素是 verts 中的顶点序号
+	const int ntris = m_geom->getMesh()->getTriCount();		// 三角形总数
 	
 	//
 	// Step 1. Initialize build config.
+	// 第一步：初始化构建配置
 	//
 	
 	// Init build configuration from GUI
 	memset(&m_cfg, 0, sizeof(m_cfg));
 	m_cfg.cs = m_cellSize;
 	m_cfg.ch = m_cellHeight;
-	m_cfg.walkableSlopeAngle = m_agentMaxSlope;
+	m_cfg.walkableSlopeAngle = m_agentMaxSlope; // 用于三角形光栅化时标记可行走的三角形表面, px
 	m_cfg.walkableHeight = (int)ceilf(m_agentHeight / m_cfg.ch);
 	m_cfg.walkableClimb = (int)floorf(m_agentMaxClimb / m_cfg.ch);
 	m_cfg.walkableRadius = (int)ceilf(m_agentRadius / m_cfg.cs);
@@ -417,16 +418,18 @@ bool Sample_SoloMesh::handleBuild()
 
 	// Start the build process.	
 	m_ctx->startTimer(RC_TIMER_TOTAL);
-	
+
 	m_ctx->log(RC_LOG_PROGRESS, "Building navigation:");
 	m_ctx->log(RC_LOG_PROGRESS, " - %d x %d cells", m_cfg.width, m_cfg.height);
 	m_ctx->log(RC_LOG_PROGRESS, " - %.1fK verts, %.1fK tris", nverts/1000.0f, ntris/1000.0f);
-	
+
 	//
 	// Step 2. Rasterize input polygon soup.
+	// 第二步：根据输入 obj 文件里的三角形面数据，初步标记可行走表面，进行三角形光栅化处理
 	//
-	
+
 	// Allocate voxel heightfield where we rasterize our input data to.
+	// 分配和初始化高度场，HeightField 具体概念见 http://www.critterai.org/projects/nmgen_study/heightfields.html
 	m_solid = rcAllocHeightfield();
 	if (!m_solid)
 	{
@@ -438,22 +441,25 @@ bool Sample_SoloMesh::handleBuild()
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not create solid heightfield.");
 		return false;
 	}
-	
+
 	// Allocate array that can hold triangle area types.
 	// If you have multiple meshes you need to process, allocate
 	// and array which can hold the max number of triangles you need to process.
-	m_triareas = new unsigned char[ntris];
+	m_triareas = new unsigned char[ntris]; // 用于临时存储三角形表面可行走标记的数组
 	if (!m_triareas)
 	{
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'm_triareas' (%d).", ntris);
 		return false;
 	}
-	
+
 	// Find triangles which are walkable based on their slope and rasterize them.
 	// If your input data is multiple meshes, you can transform them here, calculate
 	// the are type for each of the meshes and rasterize them.
 	memset(m_triareas, 0, ntris*sizeof(unsigned char));
+	// 计算各个三角形面的倾斜角度，将小于 walkableSlopeAngle 的三角形标记为可以行走
 	rcMarkWalkableTriangles(m_ctx, m_cfg.walkableSlopeAngle, verts, nverts, tris, ntris, m_triareas);
+	// 然后对三角形进行光栅化处理，构建高度场数据
+	// 这里高度场内的 span 是 solid span
 	if (!rcRasterizeTriangles(m_ctx, verts, nverts, tris, m_triareas, ntris, *m_solid, m_cfg.walkableClimb))
 	{
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not rasterize triangles.");
@@ -468,21 +474,29 @@ bool Sample_SoloMesh::handleBuild()
 	
 	//
 	// Step 3. Filter walkables surfaces.
+	// 第三步：进一步过滤筛选可行走表面
 	//
 	
 	// Once all geoemtry is rasterized, we do initial pass of filtering to
 	// remove unwanted overhangs caused by the conservative rasterization
 	// as well as filter spans where the character cannot possibly stand.
+
+	// 如果一个 span 不可行走，但是其下方 span 可以行走，且两个 span 的顶部高度差在 walkableClimb 以内
+	// 则将上方的 span 标记为可以行走
 	if (m_filterLowHangingObstacles)
 		rcFilterLowHangingWalkableObstacles(m_ctx, m_cfg.walkableClimb, *m_solid);
+
+	// 将与邻接 span 超过一定高度差的 span 标记为不可行走
 	if (m_filterLedgeSpans)
 		rcFilterLedgeSpans(m_ctx, m_cfg.walkableHeight, m_cfg.walkableClimb, *m_solid);
+
+	// 将不满足可行走高度的 span 标记为不可行走
 	if (m_filterWalkableLowHeightSpans)
 		rcFilterWalkableLowHeightSpans(m_ctx, m_cfg.walkableHeight, *m_solid);
 
-
 	//
 	// Step 4. Partition walkable surface to simple regions.
+	// 第四步：将可行走表面划分为不同的区域
 	//
 
 	// Compact the heightfield so that it is faster to handle from now on.
@@ -494,6 +508,9 @@ bool Sample_SoloMesh::handleBuild()
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Out of memory 'chf'.");
 		return false;
 	}
+	// 构建紧凑高度场数据，到这里高度场内的 span 不再是 solid span，而是 open span 了
+	// 因为寻路不关心实心空间，只关心其上表面以及开放空间，这里将根据 solid span 生成对应的 open span
+	// 并且构建每个 span 与其邻接 span 的连接信息
 	if (!rcBuildCompactHeightfield(m_ctx, m_cfg.walkableHeight, m_cfg.walkableClimb, *m_solid, *m_chf))
 	{
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not build compact data.");
@@ -505,8 +522,9 @@ bool Sample_SoloMesh::handleBuild()
 		rcFreeHeightField(m_solid);
 		m_solid = 0;
 	}
-		
+
 	// Erode the walkable area by agent radius.
+	// 根据寻路半径参数 walkableRadius，在边界和障碍处保留出一定的不可行走区域
 	if (!rcErodeWalkableArea(m_ctx, m_cfg.walkableRadius, *m_chf))
 	{
 		m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not erode.");
@@ -548,13 +566,15 @@ bool Sample_SoloMesh::handleBuild()
 	if (m_partitionType == SAMPLE_PARTITION_WATERSHED)
 	{
 		// Prepare for region partitioning, by calculating distance field along the walkable surface.
+		// 构建可行走表面的距离场数据
 		if (!rcBuildDistanceField(m_ctx, *m_chf))
 		{
 			m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not build distance field.");
 			return false;
 		}
-		
+
 		// Partition the walkable surface into simple regions without holes.
+		// 将可行走表面划分为一块块不同的区域
 		if (!rcBuildRegions(m_ctx, *m_chf, 0, m_cfg.minRegionArea, m_cfg.mergeRegionArea))
 		{
 			m_ctx->log(RC_LOG_ERROR, "buildNavigation: Could not build watershed regions.");
@@ -580,11 +600,12 @@ bool Sample_SoloMesh::handleBuild()
 			return false;
 		}
 	}
-	
+
 	//
 	// Step 5. Trace and simplify region contours.
+	// 第五步：将前面得到的区域描边，得到区域的轮廓连线，并进行一定的平滑处理
 	//
-	
+
 	// Create contours.
 	m_cset = rcAllocContourSet();
 	if (!m_cset)
@@ -600,6 +621,7 @@ bool Sample_SoloMesh::handleBuild()
 	
 	//
 	// Step 6. Build polygons mesh from contours.
+	// 第六步：根据轮廓连线，将其划分为多边形组成的网格
 	//
 	
 	// Build polygon navmesh from the contours.
@@ -617,6 +639,9 @@ bool Sample_SoloMesh::handleBuild()
 	
 	//
 	// Step 7. Create detail mesh which allows to access approximate height on each polygon.
+	// 第七步：创建细节网格数据，用于后续查询多边形内点的高度信息
+	// 到这里，Recast 的处理步骤就结束了
+	// 调用 dtCreateNavMeshData 后，就可以把得到的数据进行存盘，供后续 Detour 加载使用
 	//
 	
 	m_dmesh = rcAllocPolyMeshDetail();
