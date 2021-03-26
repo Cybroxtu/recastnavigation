@@ -532,6 +532,8 @@ bool Sample_SoloMesh::handleBuild()
 	}
 
 	// (Optional) Mark areas.
+	// 将凸多边形区域标记为指定的 area id
+	// 应该是用户自定义的凸多边形区域，一般用于标记草地、河道、水池等特殊地形
 	const ConvexVolume* vols = m_geom->getConvexVolumes();
 	for (int i  = 0; i < m_geom->getConvexVolumeCount(); ++i)
 		rcMarkConvexPolyArea(m_ctx, vols[i].verts, vols[i].nverts, vols[i].hmin, vols[i].hmax, (unsigned char)vols[i].area, *m_chf);
@@ -563,6 +565,7 @@ bool Sample_SoloMesh::handleBuild()
 	//     if you have large open areas with small obstacles (not a problem if you use tiles)
 	//   * good choice to use for tiled navmesh with medium and small sized tiles
 	
+	// watershed 算法
 	if (m_partitionType == SAMPLE_PARTITION_WATERSHED)
 	{
 		// Prepare for region partitioning, by calculating distance field along the walkable surface.
@@ -583,6 +586,7 @@ bool Sample_SoloMesh::handleBuild()
 	}
 	else if (m_partitionType == SAMPLE_PARTITION_MONOTONE)
 	{
+		// TODO COMMENT
 		// Partition the walkable surface into simple regions without holes.
 		// Monotone partitioning does not need distancefield.
 		if (!rcBuildRegionsMonotone(m_ctx, *m_chf, 0, m_cfg.minRegionArea, m_cfg.mergeRegionArea))
@@ -593,6 +597,7 @@ bool Sample_SoloMesh::handleBuild()
 	}
 	else // SAMPLE_PARTITION_LAYERS
 	{
+		// TODO COMMENT
 		// Partition the walkable surface into simple regions without holes.
 		if (!rcBuildLayerRegions(m_ctx, *m_chf, 0, m_cfg.minRegionArea))
 		{

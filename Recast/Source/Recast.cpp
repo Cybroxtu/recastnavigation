@@ -460,6 +460,7 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 	const int MAX_HEIGHT = 0xffff;
 	
 	// Fill in cells and spans.
+	// 遍历所有的 solid spans，转换为可行走表面之上的 open span 数据
 	int idx = 0;
 	for (int y = 0; y < h; ++y)
 	{
@@ -475,10 +476,10 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 			{
 				if (s->area != RC_NULL_AREA)
 				{
-					const int bot = (int)s->smax;
-					const int top = s->next ? (int)s->next->smin : MAX_HEIGHT;
-					chf.spans[idx].y = (unsigned short)rcClamp(bot, 0, 0xffff);
-					chf.spans[idx].h = (unsigned char)rcClamp(top - bot, 0, 0xff);
+					const int bot = (int)s->smax; // solid span 的 smax 是 open span 的底部高度
+					const int top = s->next ? (int)s->next->smin : MAX_HEIGHT; // cell 内下一个 solid span 的底部高度是 open span 的顶部
+					chf.spans[idx].y = (unsigned short)rcClamp(bot, 0, 0xffff); // y 坐标
+					chf.spans[idx].h = (unsigned char)rcClamp(top - bot, 0, 0xff); // 高度差
 					chf.areas[idx] = s->area;
 					idx++;
 					c.count++;
@@ -489,6 +490,7 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 	}
 
 	// Find neighbour connections.
+	// 遍历所有 open spans，构建邻接信息
 	const int MAX_LAYERS = RC_NOT_CONNECTED-1;
 	int tooHighNeighbour = 0;
 	for (int y = 0; y < h; ++y)
@@ -508,9 +510,10 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 					// First check that the neighbour cell is in bounds.
 					if (nx < 0 || ny < 0 || nx >= w || ny >= h)
 						continue;
-						
+
 					// Iterate over all neighbour spans and check if any of the is
 					// accessible from current cell.
+					// 遍历邻接格子，查找第一个可达的 span
 					const rcCompactCell& nc = chf.cells[nx+ny*w];
 					for (int k = (int)nc.index, nk = (int)(nc.index+nc.count); k < nk; ++k)
 					{
@@ -520,6 +523,10 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 
 						// Check that the gap between the spans is walkable,
 						// and that the climb height between the gaps is not too high.
+						// 如果邻接 span 的高度大于等于 walkableHeight，且两个 span y 轴重合部分的高度差小于等于 walkableClimb
+						// 即可认为从当前 span 可达该邻接 span，设置该方向上的邻接关系
+						// 注意这里只保存该邻接方向上，第一个连通的 span 信息
+						// 而该方向上，应该也是有可能存在多个连通的邻接 span
 						if ((top - bot) >= walkableHeight && rcAbs((int)ns.y - (int)s.y) <= walkableClimb)
 						{
 							// Mark direction as walkable.

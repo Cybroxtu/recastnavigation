@@ -942,6 +942,7 @@ int rcGetHeightFieldSpanCount(rcContext* ctx, rcHeightfield& hf);
 /// @{
 
 /// Builds a compact heightfield representing open space, from a heightfield representing solid space.
+/// 从 solid span 构建 open span 数据，并计算邻接关系
 ///  @ingroup recast
 ///  @param[in,out]	ctx				The build context to use during the operation.
 ///  @param[in]		walkableHeight	Minimum floor to 'ceiling' height that will still allow the floor area 
@@ -964,7 +965,7 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf);
 
 /// Applies a median filter to walkable area types (based on area id), removing noise.
-/// 平滑降噪处理，将一个 span 的 area id 设置为其九向（包含自身）邻接区域的中位数 area id
+/// 平滑降噪处理，将一个 span 的 area id 设置为其九宫格内 area id 的中位数
 /// area id 具有数值大小的意义吗？
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
@@ -1028,6 +1029,7 @@ void rcMarkCylinderArea(rcContext* ctx, const float* pos,
 bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf);
 
 /// Builds region data for the heightfield using watershed partitioning.
+/// 使用分水岭算法，根据距离场数据，进行区域划分
 ///  @ingroup recast
 ///  @param[in,out]	ctx				The build context to use during the operation.
 ///  @param[in,out]	chf				A populated compact heightfield.

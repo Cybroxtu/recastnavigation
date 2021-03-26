@@ -37,16 +37,19 @@ struct LevelStackEntry
 };
 }  // namespace
 
+// 计算距离场
 static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* src, unsigned short& maxDist)
 {
 	const int w = chf.width;
 	const int h = chf.height;
 	
 	// Init distance and points.
+	// 设置距离初始值
 	for (int i = 0; i < chf.spanCount; ++i)
 		src[i] = 0xffff;
 	
 	// Mark boundary cells.
+	// 将边缘位置（存在邻接不连通的 span、可行走span邻接不可行走span，不可行走span邻接可行走span）标记为距离 0
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -74,8 +77,10 @@ static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* sr
 			}
 		}
 	}
-	
-			
+
+	// 下面的逻辑与 rcErodeWalkableArea 大同小异
+	// 两次遍历计算出每一个 span 与边缘的距离
+
 	// Pass 1
 	for (int y = 0; y < h; ++y)
 	{
@@ -1282,6 +1287,7 @@ bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf)
 	{
 		rcScopedTimer timerDist(ctx, RC_TIMER_BUILD_DISTANCEFIELD_DIST);
 
+		// 计算距离场，获取最大距离值
 		calculateDistanceField(chf, src, maxDist);
 		chf.maxDistance = maxDist;
 	}
@@ -1290,6 +1296,8 @@ bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf)
 		rcScopedTimer timerBlur(ctx, RC_TIMER_BUILD_DISTANCEFIELD_BLUR);
 
 		// Blur
+		// 方框模糊算法，这里是将距离场进行一个平滑处理
+		// 每一个 span 的距离被调整为九宫格内距离的平均值
 		if (boxBlur(chf, 1, src, dst) != src)
 			rcSwap(src, dst);
 
@@ -1523,6 +1531,7 @@ bool rcBuildRegionsMonotone(rcContext* ctx, rcCompactHeightfield& chf,
 /// @warning The distance field must be created using #rcBuildDistanceField before attempting to build regions.
 /// 
 /// @see rcCompactHeightfield, rcCompactSpan, rcBuildDistanceField, rcBuildRegionsMonotone, rcConfig
+// TODO COMMENT
 bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 					const int borderSize, const int minRegionArea, const int mergeRegionArea)
 {
@@ -1573,6 +1582,8 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 		const int bh = rcMin(h, borderSize);
 		
 		// Paint regions
+		// 将网格单行、单列的边界区域的可行走 span 按行、列各标记为一个 regionId
+		// 单个 cell 内的多个可行走 span 都会被标记为同一个 regionId
 		paintRectRegion(0, bw, 0, h, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
 		paintRectRegion(w-bw, w, 0, h, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
 		paintRectRegion(0, w, 0, bh, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
