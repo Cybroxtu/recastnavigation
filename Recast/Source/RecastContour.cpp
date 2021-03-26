@@ -867,6 +867,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	ctx->startTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 	
 	// Mark boundaries.
+	// 这里是将所有 span 四方向里不连通的边标记出来
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -878,9 +879,11 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				const rcCompactSpan& s = chf.spans[i];
 				if (!chf.spans[i].reg || (chf.spans[i].reg & RC_BORDER_REG))
 				{
+					// 如果不在任何区域内，或者是边界 region，则标记为 0，表示后面可以略过处理
 					flags[i] = 0;
 					continue;
 				}
+
 				for (int dir = 0; dir < 4; ++dir)
 				{
 					unsigned short r = 0;
@@ -891,9 +894,14 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 						const int ai = (int)chf.cells[ax+ay*w].index + rcGetCon(s, dir);
 						r = chf.spans[ai].reg;
 					}
+
+					// 该方向上，当前 span 与邻接 span 的 region 相同，代表是连通的
+					// 标记该方向为连通
 					if (r == chf.spans[i].reg)
 						res |= (1 << dir);
 				}
+
+				// 前面是连通标记，这里取反，得到不连通标记
 				flags[i] = res ^ 0xf; // Inverse, mark non connected edges.
 			}
 		}
@@ -911,29 +919,47 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 			const rcCompactCell& c = chf.cells[x+y*w];
 			for (int i = (int)c.index, ni = (int)(c.index+c.count); i < ni; ++i)
 			{
+				// flags[i] == 0：无reg、边界reg、处于 region 内部位置（因为四方向邻接的都是相同 reg 的 span），这三种情况可以直接略过
+				// flags[i] == 0xf：四方向均不连通或均为不同的 region，也可以直接略过
+				// 因为这些情况里，这个 span 肯定不是轮廓线上的位置，对于构建轮廓线没有帮助
 				if (flags[i] == 0 || flags[i] == 0xf)
 				{
 					flags[i] = 0;
 					continue;
 				}
+
 				const unsigned short reg = chf.spans[i].reg;
 				if (!reg || (reg & RC_BORDER_REG))
 					continue;
 				const unsigned char area = chf.areas[i];
-				
+				// 到这里， i 代表的一定是在 region 轮廓线的 span
+
 				verts.clear();
 				simplified.clear();
 				
 				ctx->startTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
+
+				// walkContour: 绕着 region 边缘遍历一圈，把边缘的格子点坐标都保存到 verts 数组中
+				// 数据格式为：x h y r
+				// 分别对应格子 x 轴坐标、span 的边缘高度、格子的 y 坐标、region 标记（分段保存了 id、是否边缘节点、是否区域边缘）
+				// ? RC_BORDER_VERTEX RC_AREA_BORDER RC_BORDER_REG 什么区别？
+				// 猜想：（好像是错的）
+				// RC_BORDER_VERTEX 是位于一条分界线上的点，另一边可能是 area 可能不是？
+				// RC_AREA_BORDER 是明确的两个 area 之间的界限
 				walkContour(x, y, i, chf, flags, verts);
+
 				ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
-				
+
 				ctx->startTimer(RC_TIMER_BUILD_CONTOURS_SIMPLIFY);
+				// simplifyContour: 将区域轮廓进行简化处理
+				// 主要是：
+				// 1.在 maxError 范围内对折线做平滑处理
+				// 2.对大于 maxEdgeLen 的线段做拆分处理
 				simplifyContour(verts, simplified, maxError, maxEdgeLen, buildFlags);
 				removeDegenerateSegments(simplified);
+
 				ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_SIMPLIFY);
-				
-				
+
 				// Store region->contour remap info.
 				// Create contour.
 				if (simplified.size()/4 >= 3)

@@ -1141,6 +1141,7 @@ bool rcBuildHeightfieldLayers(rcContext* ctx, rcCompactHeightfield& chf,
 							  rcHeightfieldLayerSet& lset);
 
 /// Builds a contour set from the region outlines in the provided compact heightfield.
+/// 将连通的 open span 组成的区域描出轮廓连线
 ///  @ingroup recast
 ///  @param[in,out]	ctx			The build context to use during the operation.
 ///  @param[in]		chf			A fully built compact heightfield.
