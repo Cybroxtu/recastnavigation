@@ -184,10 +184,6 @@ static void walkContour(int x, int y, int i,
 				if (area != chf.areas[ai])
 					isAreaBorder = true;
 			}
-			else
-			{
-				int abc = 100;
-			}
 			if (isBorderVertex)
 				r |= RC_BORDER_VERTEX; // 65536 - 0x1 0000
 			if (isAreaBorder)
@@ -272,10 +268,6 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		{
 			hasConnections = true;
 			break;
-		}
-		else
-		{
-			int b = 0;
 		}
 	}
 	
