@@ -37,19 +37,19 @@ struct LevelStackEntry
 };
 }  // namespace
 
-// ¼ÆËã¾àÀë³¡
+// è®¡ç®—è·ç¦»åœº
 static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* src, unsigned short& maxDist)
 {
 	const int w = chf.width;
 	const int h = chf.height;
 	
 	// Init distance and points.
-	// ÉèÖÃ¾àÀë³õÊ¼Öµ
+	// è®¾ç½®è·ç¦»åˆå§‹å€¼
 	for (int i = 0; i < chf.spanCount; ++i)
 		src[i] = 0xffff;
 	
 	// Mark boundary cells.
-	// ½«±ßÔµÎ»ÖÃ£¨´æÔÚÁÚ½Ó²»Á¬Í¨µÄ span¡¢¿ÉĞĞ×ßspanÁÚ½Ó²»¿ÉĞĞ×ßspan£¬²»¿ÉĞĞ×ßspanÁÚ½Ó¿ÉĞĞ×ßspan£©±ê¼ÇÎª¾àÀë 0
+	// å°†è¾¹ç¼˜ä½ç½®ï¼ˆå­˜åœ¨é‚»æ¥ä¸è¿é€šçš„ spanã€å¯è¡Œèµ°spané‚»æ¥ä¸å¯è¡Œèµ°spanï¼Œä¸å¯è¡Œèµ°spané‚»æ¥å¯è¡Œèµ°spanï¼‰æ ‡è®°ä¸ºè·ç¦» 0
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -78,8 +78,8 @@ static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* sr
 		}
 	}
 
-	// ÏÂÃæµÄÂß¼­Óë rcErodeWalkableArea ´óÍ¬Ğ¡Òì
-	// Á½´Î±éÀú¼ÆËã³öÃ¿Ò»¸ö span Óë±ßÔµµÄ¾àÀë
+	// ä¸‹é¢çš„é€»è¾‘ä¸ rcErodeWalkableArea å¤§åŒå°å¼‚
+	// ä¸¤æ¬¡éå†è®¡ç®—å‡ºæ¯ä¸€ä¸ª span ä¸è¾¹ç¼˜çš„è·ç¦»
 
 	// Pass 1
 	for (int y = 0; y < h; ++y)
@@ -1287,7 +1287,7 @@ bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf)
 	{
 		rcScopedTimer timerDist(ctx, RC_TIMER_BUILD_DISTANCEFIELD_DIST);
 
-		// ¼ÆËã¾àÀë³¡£¬»ñÈ¡×î´ó¾àÀëÖµ
+		// è®¡ç®—è·ç¦»åœºï¼Œè·å–æœ€å¤§è·ç¦»å€¼
 		calculateDistanceField(chf, src, maxDist);
 		chf.maxDistance = maxDist;
 	}
@@ -1296,8 +1296,8 @@ bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf)
 		rcScopedTimer timerBlur(ctx, RC_TIMER_BUILD_DISTANCEFIELD_BLUR);
 
 		// Blur
-		// ·½¿òÄ£ºıËã·¨£¬ÕâÀïÊÇ½«¾àÀë³¡½øĞĞÒ»¸öÆ½»¬´¦Àí
-		// Ã¿Ò»¸ö span µÄ¾àÀë±»µ÷ÕûÎª¾Å¹¬¸ñÄÚ¾àÀëµÄÆ½¾ùÖµ
+		// æ–¹æ¡†æ¨¡ç³Šç®—æ³•ï¼Œè¿™é‡Œæ˜¯å°†è·ç¦»åœºè¿›è¡Œä¸€ä¸ªå¹³æ»‘å¤„ç†
+		// æ¯ä¸€ä¸ª span çš„è·ç¦»è¢«è°ƒæ•´ä¸ºä¹å®«æ ¼å†…è·ç¦»çš„å¹³å‡å€¼
 		if (boxBlur(chf, 1, src, dst) != src)
 			rcSwap(src, dst);
 
@@ -1577,13 +1577,17 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 
 	if (borderSize > 0)
 	{
+		// è¿™ä¸ª borderSize æ˜¯ tile çš„è¾¹ç•Œå¤§å°
+		// ä»€ä¹ˆç”¨å¤„å‘¢ï¼Ÿä¸ºä»€ä¹ˆè¦åœ¨ Tile é‡Œç•™è¾¹ç•Œï¼Ÿ
+		// å¯¹äºåç»­ AddTile æ—¶ï¼ŒConnectExtLink åˆæœ‰ä»€ä¹ˆç”¨ï¼Ÿ
+
 		// Make sure border will not overflow.
 		const int bw = rcMin(w, borderSize);
 		const int bh = rcMin(h, borderSize);
-		
+
 		// Paint regions
-		// ½«Íø¸ñµ¥ĞĞ¡¢µ¥ÁĞµÄ±ß½çÇøÓòµÄ¿ÉĞĞ×ß span °´ĞĞ¡¢ÁĞ¸÷±ê¼ÇÎªÒ»¸ö regionId
-		// µ¥¸ö cell ÄÚµÄ¶à¸ö¿ÉĞĞ×ß span ¶¼»á±»±ê¼ÇÎªÍ¬Ò»¸ö regionId
+		// å°†ç½‘æ ¼å•è¡Œã€å•åˆ—çš„è¾¹ç•ŒåŒºåŸŸçš„å¯è¡Œèµ° span æŒ‰è¡Œã€åˆ—å„æ ‡è®°ä¸ºä¸€ä¸ª regionId
+		// å•ä¸ª cell å†…çš„å¤šä¸ªå¯è¡Œèµ° span éƒ½ä¼šè¢«æ ‡è®°ä¸ºåŒä¸€ä¸ª regionId
 		paintRectRegion(0, bw, 0, h, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
 		paintRectRegion(w-bw, w, 0, h, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
 		paintRectRegion(0, w, 0, bh, regionId|RC_BORDER_REG, chf, srcReg); regionId++;
@@ -1591,7 +1595,7 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 	}
 
 	chf.borderSize = borderSize;
-	
+
 	int sId = -1;
 	while (level > 0)
 	{

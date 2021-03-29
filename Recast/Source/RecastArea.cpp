@@ -172,6 +172,7 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 	// Pass 2
 	// 第二遍处理，注意这里 x y 反向了
 	// 邻接 span 遍历顺序为 →↘、↓↙
+
 	for (int y = h-1; y >= 0; --y)
 	{
 		for (int x = w-1; x >= 0; --x)
@@ -229,7 +230,7 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf)
 		}
 	}
 
-	// 将与边界距离小于一定值的区域标记为不可行走
+	// 将与边界距离小于一定值的区域标记为不可行走 
 	const unsigned char thr = (unsigned char)(radius*2); // 乘以了 2
 	for (int i = 0; i < chf.spanCount; ++i)
 		if (dist[i] < thr)

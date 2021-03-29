@@ -31,9 +31,22 @@ static int getCornerHeight(int x, int y, int i, int dir,
 						   bool& isBorderVertex)
 {
 	const rcCompactSpan& s = chf.spans[i];
-	int ch = (int)s.y;
+	int ch = (int)s.y; // ç”¨äºä¿å­˜å››ä¸ªé‡‡æ ·ç‚¹é‡Œçš„æœ€å¤§é«˜åº¦
 	int dirp = (dir+1) & 0x3;
-	
+
+	// å››ä¸ªæ–¹å‘
+	// 23
+	// 10
+	//
+	// 12
+	// 03
+	//
+	// 01
+	// 32
+	//
+	// 30
+	// 21
+
 	unsigned int regs[4] = {0,0,0,0};
 	
 	// Combine region and area codes in order to prevent
@@ -78,18 +91,27 @@ static int getCornerHeight(int x, int y, int i, int dir,
 	}
 
 	// Check if the vertex is special edge vertex, these vertices will be removed later.
+	// æ³¨æ„è¿™é‡Œæ£€æŸ¥çš„å››ä¸ªç‚¹ï¼Œæ„æˆäº†ä¸€ä¸ªæ­£æ–¹å½¢
 	for (int j = 0; j < 4; ++j)
 	{
 		const int a = j;
 		const int b = (j+1) & 0x3;
 		const int c = (j+2) & 0x3;
 		const int d = (j+3) & 0x3;
-		
+
 		// The vertex is a border vertex there are two same exterior cells in a row,
 		// followed by two interior cells and none of the regions are out of bounds.
+		// åˆ¤æ–­ a b ä¸¤ä¸ªç‚¹ï¼Œæ˜¯å¦æ˜¯ tile è¾¹ç•Œä¸Šç›¸åŒ regionã€ç›¸åŒ area çš„åŒºåŸŸçš„ç‚¹
+		// è§ rcBuildRegions->paintRectRegion
 		const bool twoSameExts = (regs[a] & regs[b] & RC_BORDER_REG) != 0 && regs[a] == regs[b];
+		// åˆ¤æ–­å¯¹é¢çš„ä¸¤ä¸ªç‚¹ c dï¼Œæ˜¯å¦å‡ä¸æ˜¯è¾¹ç•Œç‚¹
 		const bool twoInts = ((regs[c] | regs[d]) & RC_BORDER_REG) == 0;
+		// åˆ¤æ–­å¯¹é¢çš„ä¸¤ä¸ªç‚¹ c dï¼Œæ˜¯å¦å±äºç›¸åŒçš„ area
+		// area æ˜¯ç”¨äºç”¨æˆ·è‡ªå®šä¹‰åœ°å½¢ç±»åˆ«çš„ï¼Œå¯»è·¯æ—¶ä¹Ÿå¯èƒ½ç”¨äºè®¡ç®—ä¸åŒçš„èŠ±è´¹
+		// æ‰€ä»¥è¿™é‡Œæ˜¯ï¼šå³ä¾¿å¤„äºç›¸åŒçš„ regionï¼Œä½†æ˜¯å¦‚æœ area ä¸åŒï¼Œä¾æ—§ç®—æ˜¯è¾¹ç¼˜
+		// c å’Œ d å¿…é¡»åˆ†å±ç›¸åŒçš„ areaï¼Œä½†æ˜¯ region å¯ä»¥ä¸åŒã€‚ã€‚ã€‚
 		const bool intsSameArea = (regs[c]>>16) == (regs[d]>>16);
+		// TODO å››ä¸ªç‚¹å‡åœ¨åˆæ³• region å†…
 		const bool noZeros = regs[a] != 0 && regs[b] != 0 && regs[c] != 0 && regs[d] != 0;
 		if (twoSameExts && twoInts && intsSameArea && noZeros)
 		{
@@ -106,30 +128,32 @@ static void walkContour(int x, int y, int i,
 						unsigned char* flags, rcIntArray& points)
 {
 	// Choose the first non-connected edge
+	// æŒ‰å·¦ã€ä¸Šã€å³ã€ä¸‹çš„é¡ºåºæ‰¾åˆ°ç¬¬ä¸€ä¸ªæœªè¿é€šè¾¹çš„æ–¹å‘
 	unsigned char dir = 0;
 	while ((flags[i] & (1 << dir)) == 0)
 		dir++;
-	
+
 	unsigned char startDir = dir;
 	int starti = i;
-	
+
 	const unsigned char area = chf.areas[i];
 	
 	int iter = 0;
 	while (++iter < 40000)
 	{
-		// ×¢ÒâÕâÀïÎªÕæ´ú±íÕâ¸ö·½ÏòÉÏÃ»ÓĞÁÚ½Óspan£¬»òÕßÁÚ½Óspan²»ÊôÓÚÍ¬Ò»¸öregion
+		// æ³¨æ„è¿™é‡Œä¸ºçœŸä»£è¡¨è¿™ä¸ªæ–¹å‘ä¸Šæ²¡æœ‰é‚»æ¥ spanï¼Œæˆ–è€…é‚»æ¥çš„ span ä¸å±äºåŒä¸€ä¸ªregion
 		if (flags[i] & (1 << dir))
 		{
 			// Choose the edge corner
 			bool isBorderVertex = false;
 			bool isAreaBorder = false;
 			int px = x;
-			// CornerHeight ÊÇ µ±Ç°span¡¢×ó¡¢×óÏÂ¡¢ÏÂ ËÄ¸ö·½ÏòÀïµÄ×î´ó¸ß¶È
-			// ?ÎªÊ²Ã´Ö»¼ÆËã×óÏÂ·½£¿
-			// isBorderVertex£¬ÊÇ·ñÊÇ±ßÔµÉÏµÄ½Úµã
-			// º¬ÒåÊÇ¶ÔÓÚ×é³ÉÒ»¸öÕı·½ĞÎµÄÏàÁÚËÄ¸ö span£¬Èç¹ûºáÆ½ÊúÖ±·½ÏòÉÏ£¬Á½Á½µÄÁ¬ÏßÕıºÃ·ÖÊôÁ½¸ö²»Í¬µÄÇøÓò
-			// Ôò¿ÉÒÔÈÏÎªÕâ¼¸¸öµãÕıºÃÔÚ±ßÔµÉÏ
+
+			// CornerHeight æ˜¯ å½“å‰spanã€å·¦ã€å·¦ä¸‹ã€ä¸‹ å››ä¸ªæ–¹å‘é‡Œçš„æœ€å¤§é«˜åº¦
+			// ?ä¸ºä»€ä¹ˆåªè®¡ç®—å·¦ä¸‹æ–¹ï¼Ÿ
+			// isBorderVertexï¼Œæ˜¯å¦æ˜¯è¾¹ç¼˜ä¸Šçš„èŠ‚ç‚¹
+			// å«ä¹‰æ˜¯å¯¹äºç»„æˆä¸€ä¸ªæ­£æ–¹å½¢çš„ç›¸é‚»å››ä¸ª spanï¼Œå¦‚æœæ¨ªå¹³ç«–ç›´æ–¹å‘ä¸Šï¼Œä¸¤ä¸¤çš„è¿çº¿æ­£å¥½åˆ†å±ä¸¤ä¸ªä¸åŒçš„åŒºåŸŸ
+			// åˆ™å¯ä»¥è®¤ä¸ºè¿™å‡ ä¸ªç‚¹æ­£å¥½åœ¨è¾¹ç¼˜ä¸Š
 			// A B
 			// C D
 			// AB|CD
@@ -138,15 +162,17 @@ static void walkContour(int x, int y, int i,
 			// CA|BD
 			int py = getCornerHeight(x, y, i, dir, chf, isBorderVertex);
 			int pz = y;
-			// px py pz  ÎªÊ²Ã´ÕâÀïÕâÃ´¸³Öµ£¿
 			switch(dir)
 			{
-				case 0: pz++; break;
-				case 1: px++; pz++; break;
-				case 2: px++; break;
+				// è¿™é‡Œ px pz æ˜¯æ ¼å­çš„ x y åæ ‡
+				case 0: pz++; break; // å·¦æ–¹ä¸è¿é€šï¼Œè·å–ä¸‹æ–¹çš„æ ¼å­åæ ‡
+				case 1: px++; pz++; break; // ä¸Šæ–¹ä¸è¿é€šï¼Œè·å–å³ä¸‹æ–¹çš„æ ¼å­åæ ‡ï¼Ÿ
+				case 2: px++; break; // å³æ–¹ä¸è¿é€šï¼Œå°±è·å–å³æ–¹æ ¼å­çš„åæ ‡ï¼Ÿï¼Ÿï¼Ÿ
 			}
+
 			int r = 0;
 			const rcCompactSpan& s = chf.spans[i];
+			// ä¸€ä¸ª span åœ¨æŸä¸ªæ–¹å‘ä¸Šä¸è¿é€šï¼Œè¿™ä¸ç®—æ˜¯ Area Border çš„æ€§è´¨ä¹‹ä¸€ï¼Ÿ
 			if (rcGetCon(s, dir) != RC_NOT_CONNECTED)
 			{
 				const int ax = x + rcGetDirOffsetX(dir);
@@ -154,9 +180,13 @@ static void walkContour(int x, int y, int i,
 				const int ai = (int)chf.cells[ax+ay*chf.width].index + rcGetCon(s, dir);
 				r = (int)chf.spans[ai].reg;
 
-				// Èç¹ûµ±Ç° span Ö¸¶¨·½ÏòÉÏµÄÁÚ½Ó span ²»ÊôÓÚÍ¬Ò»¸ö region£¬Ôòµ±Ç° span ÊÇ region ±ßÔµ
+				// å¦‚æœå½“å‰ span æŒ‡å®šæ–¹å‘ä¸Šçš„é‚»æ¥ span ä¸å±äºåŒä¸€ä¸ª regionï¼Œåˆ™å½“å‰ span æ˜¯ region è¾¹ç¼˜
 				if (area != chf.areas[ai])
 					isAreaBorder = true;
+			}
+			else
+			{
+				int abc = 100;
 			}
 			if (isBorderVertex)
 				r |= RC_BORDER_VERTEX; // 65536 - 0x1 0000
@@ -166,14 +196,15 @@ static void walkContour(int x, int y, int i,
 			points.push(py);
 			points.push(pz);
 			points.push(r);
-			
+
 			flags[i] &= ~(1 << dir); // Remove visited edges
+			// é¡ºæ—¶é’ˆè½¬å‘
 			dir = (dir+1) & 0x3;  // Rotate CW
 		}
 		else
 		{
-			// Èç¹û¶ÔÓ¦·½ÏòÓĞÁÚ½Ó span
-			// ÔòÔÚÕâÀïÄæÊ±Õë×ªÏòÏÂÒ»¸ö span
+			// å¦‚æœå¯¹åº”æ–¹å‘æœ‰é‚»æ¥ span
+			// åˆ™ä»ä¸‹ä¸€ä¸ª span å¼€å§‹ï¼Œé€†æ—¶é’ˆè½¬å‘
 			int ni = -1;
 			const int nx = x + rcGetDirOffsetX(dir);
 			const int ny = y + rcGetDirOffsetY(dir);
@@ -191,11 +222,12 @@ static void walkContour(int x, int y, int i,
 			x = nx;
 			y = ny;
 			i = ni;
+			// é€†æ—¶é’ˆè½¬å‘
 			dir = (dir+3) & 0x3;	// Rotate CCW
 		}
 
-		// ÈÆ»Øµ½ÆğÊ¼µã£¬¿ÉÒÔ½áÊøÑ­»·
-		// ×¢ÒâÕâÀïÈÆ»ØÀ´µÄ·½ÏòºÍÆğÊ¼·½Ïò²»Ò»ÖÂµÄ»°£¬ĞèÒª¼ÌĞøÑ­»·
+		// ç»•å›åˆ°èµ·å§‹ç‚¹ï¼Œå¯ä»¥ç»“æŸå¾ªç¯
+		// æ³¨æ„è¿™é‡Œç»•å›æ¥çš„æ–¹å‘å’Œèµ·å§‹æ–¹å‘ä¸ä¸€è‡´çš„è¯ï¼Œéœ€è¦ç»§ç»­å¾ªç¯
 		if (starti == i && startDir == dir)
 		{
 			break;
@@ -230,8 +262,9 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 							const float maxError, const int maxEdgeLen, const int buildFlags)
 {
 	// Add initial points.
-	// ÕâÀï±éÀúÂÖÀª±ßÔµ¸ñ×Ó£¬´Ó r ÖĞÈ¡³öµÍ 16 Î»ÀïµÄ region id
-	// ÕÒµ½µÚÒ»¸ö region id ²»Îª 0 µÄµã
+	// è¿™é‡Œéå†è½®å»“è¾¹ç¼˜æ ¼å­ï¼Œä» r ä¸­å–å‡ºä½ 16 ä½é‡Œçš„ region id
+	// è¿™é‡Œçš„ points[i+3]ï¼Œä½ 16 ä½æ˜¯ region_idï¼Œ17ã€18 ä½æ˜¯ç‰¹æ®Šæ ‡è®°ä½
+	// æ‰¾åˆ°ç¬¬ä¸€ä¸ª region id ä¸ä¸º 0 çš„ç‚¹
 	bool hasConnections = false;
 	for (int i = 0; i < points.size(); i += 4)
 	{
@@ -239,6 +272,10 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		{
 			hasConnections = true;
 			break;
+		}
+		else
+		{
+			int b = 0;
 		}
 	}
 	
@@ -248,16 +285,16 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		// Add a new point to every location where the region changes.
 		for (int i = 0, ni = points.size()/4; i < ni; ++i)
 		{
-			// ii ÊÇÂÖÀªÁ¬ÏßÉÏ£¬µ±Ç°µã i µÄÏÂÒ»¸öµãµÄĞòºÅ
+			// ii æ˜¯è½®å»“è¿çº¿ä¸Šï¼Œå½“å‰ç‚¹ i çš„ä¸‹ä¸€ä¸ªç‚¹çš„åºå·
 			int ii = (i+1) % ni;
-			// ÅĞ¶Ïµ±Ç°µãÓëÏÂÒ»¸öµãÊÇ·ñÊôÓÚÍ¬Ò»¸ö region id
+			// åˆ¤æ–­å½“å‰ç‚¹ä¸ä¸‹ä¸€ä¸ªç‚¹æ˜¯å¦å±äºåŒä¸€ä¸ª region id
 			const bool differentRegs = (points[i*4+3] & RC_CONTOUR_REG_MASK) != (points[ii*4+3] & RC_CONTOUR_REG_MASK);
-			// Á½¸öµãÒ»¸öÊÇ area border Ò»¸ö²»ÊÇ£¬Ö¤Ã÷µ±Ç°ÊÇ±ß½ç
-			// ? Á½¸öµã¶¼ÊÇ±ß½çµÄÇé¿ö£¿
+			// ä¸¤ä¸ªç‚¹ä¸€ä¸ªæ˜¯ area border ä¸€ä¸ªä¸æ˜¯ï¼Œè¯æ˜å½“å‰æ˜¯è¾¹ç•Œ
+			// ? ä¸¤ä¸ªç‚¹éƒ½æ˜¯è¾¹ç•Œçš„æƒ…å†µï¼Ÿ
 			const bool areaBorders = (points[i*4+3] & RC_AREA_BORDER) != (points[ii*4+3] & RC_AREA_BORDER);
-			// ÕâÀïÎªÁË¼ò»¯Ê²Ã´£¿
-			// Ìõ¼şÈ¡·´Ò»ÏÂ£¬¼´Îªµ± !differentRegs && !areaBorders Ê±£¬¶ªÆúµã
-			// ËùÒÔÈç¹ûÁ½¸öµã£ºÊôÓÚÍ¬Ò»¸öregion && £¨¶¼²»ÊÇ border µã || ¶¼ÊÇ border µã£©Ê±£¬¿ÉÒÔºöÂÔµôµ±Ç°µã£¨¿ÉÒÔÊÓÎªºÍÏÂÒ»¸öµãºÏ²¢ÁË£©
+			// è¿™é‡Œä¸ºäº†ç®€åŒ–ä»€ä¹ˆï¼Ÿ
+			// æ¡ä»¶å–åä¸€ä¸‹ï¼Œå³ä¸ºå½“ !differentRegs && !areaBorders æ—¶ï¼Œä¸¢å¼ƒç‚¹
+			// æ‰€ä»¥å¦‚æœä¸¤ä¸ªç‚¹ï¼šå±äºåŒä¸€ä¸ªregion && ï¼ˆéƒ½ä¸æ˜¯ border ç‚¹ || éƒ½æ˜¯ border ç‚¹ï¼‰æ—¶ï¼Œå¯ä»¥å¿½ç•¥æ‰å½“å‰ç‚¹ï¼ˆå¯ä»¥è§†ä¸ºå’Œä¸‹ä¸€ä¸ªç‚¹åˆå¹¶äº†ï¼‰
 			if (differentRegs || areaBorders)
 			{
 				simplified.push(points[i*4+0]);
@@ -357,7 +394,7 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		if ((points[ci*4+3] & RC_CONTOUR_REG_MASK) == 0 ||
 			(points[ci*4+3] & RC_AREA_BORDER))
 		{
-			// ÕâÀïÇó³öÁ½¸öµãÁ¬ÏßÉÏµÄµãÓëÁ¬ÏßµÄ¾àÀë×î´óÆ½·½ maxd£¬ÒÔ¼°¾àÀë×î´óµÄµã maxi
+			// è¿™é‡Œæ±‚å‡ºä¸¤ä¸ªç‚¹è¿çº¿ä¸Šçš„ç‚¹ä¸è¿çº¿çš„è·ç¦»æœ€å¤§å¹³æ–¹ maxdï¼Œä»¥åŠè·ç¦»æœ€å¤§çš„ç‚¹ maxi
 			while (ci != endi)
 			{
 				float d = distancePtSeg(points[ci*4+0], points[ci*4+2], ax, az, bx, bz);
@@ -373,15 +410,15 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		
 		// If the max deviation is larger than accepted error,
 		// add new point, else continue to next segment.
-		// Èç¹û¾àÀë³¬³ö×î´óÎó²î¾àÀë£¬ÔòÔÚÕâ¸öÎó²î¾àÀë×î´óµÄµØ·½²åÈëÒ»¸öÖĞ¼äµã
-		// È»ºóÏÂÒ»´ÎÑ­»·ÒÔÕâ¸öµãÎªÆğµã¼ÌĞø
-		// Èç¹ûÔÚÎó²î¾àÀëÒÔÄÚ£¬ÔòÖ±½Ó´ÓÏÂÒ»¸öµã¿ªÊ¼±éÀú
+		// å¦‚æœè·ç¦»è¶…å‡ºæœ€å¤§è¯¯å·®è·ç¦»ï¼Œåˆ™åœ¨è¿™ä¸ªè¯¯å·®è·ç¦»æœ€å¤§çš„åœ°æ–¹æ’å…¥ä¸€ä¸ªä¸­é—´ç‚¹
+		// ç„¶åä¸‹ä¸€æ¬¡å¾ªç¯ä»¥è¿™ä¸ªç‚¹ä¸ºèµ·ç‚¹ç»§ç»­
+		// å¦‚æœåœ¨è¯¯å·®è·ç¦»ä»¥å†…ï¼Œåˆ™ç›´æ¥ä»ä¸‹ä¸€ä¸ªç‚¹å¼€å§‹éå†
 		if (maxi != -1 && maxd > (maxError*maxError))
 		{
 			// Add space for the new point.
 			simplified.resize(simplified.size()+4);
 			const int n = simplified.size()/4;
-			// ½« i+1 ºóµÄµãºóÒÆÒ»¸öÎ»ÖÃ
+			// å°† i+1 åçš„ç‚¹åç§»ä¸€ä¸ªä½ç½®
 			for (int j = n-1; j > i; --j)
 			{
 				simplified[j*4+0] = simplified[(j-1)*4+0];
@@ -873,6 +910,8 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	rcVcopy(cset.bmax, chf.bmax);
 	if (borderSize > 0)
 	{
+		// borderSize ä»£è¡¨è¦åœ¨é«˜åº¦åœºåŒ…å›´ç›’è¾¹ç•Œå¤„ä¿ç•™ä¸€å®šæ•°é‡ cell å¤§å°çš„è¾¹ç•ŒåŒºåŸŸ
+		// æ„å»ºè½®å»“æ—¶éœ€è¦æ’é™¤æ‰è¿™ä¸ªèŒƒå›´
 		// If the heightfield was build with bordersize, remove the offset.
 		const float pad = borderSize*chf.cs;
 		cset.bmin[0] += pad;
@@ -903,7 +942,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	ctx->startTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 	
 	// Mark boundaries.
-	// ÕâÀïÊÇ½«ËùÓĞ span ËÄ·½ÏòÀï²»Á¬Í¨µÄ±ß±ê¼Ç³öÀ´
+	// è¿™é‡Œæ˜¯å°†æ‰€æœ‰ span å››æ–¹å‘é‡Œä¸è¿é€šçš„è¾¹æ ‡è®°å‡ºæ¥
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -915,7 +954,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				const rcCompactSpan& s = chf.spans[i];
 				if (!chf.spans[i].reg || (chf.spans[i].reg & RC_BORDER_REG))
 				{
-					// Èç¹û²»ÔÚÈÎºÎÇøÓòÄÚ£¬»òÕßÊÇ±ß½ç region£¬Ôò±ê¼ÇÎª 0£¬±íÊ¾ºóÃæ¿ÉÒÔÂÔ¹ı´¦Àí
+					// å¦‚æœä¸åœ¨ä»»ä½•åŒºåŸŸå†…ï¼Œæˆ–è€…æ˜¯è¾¹ç•Œ regionï¼Œåˆ™æ ‡è®°ä¸º 0ï¼Œè¡¨ç¤ºåé¢å¯ä»¥ç•¥è¿‡å¤„ç†
 					flags[i] = 0;
 					continue;
 				}
@@ -931,13 +970,13 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 						r = chf.spans[ai].reg;
 					}
 
-					// ¸Ã·½ÏòÉÏ£¬µ±Ç° span ÓëÁÚ½Ó span µÄ region ÏàÍ¬£¬´ú±íÊÇÁ¬Í¨µÄ
-					// ±ê¼Ç¸Ã·½ÏòÎªÁ¬Í¨
+					// è¯¥æ–¹å‘ä¸Šï¼Œå½“å‰ span ä¸é‚»æ¥ span çš„ region ç›¸åŒï¼Œä»£è¡¨æ˜¯è¿é€šçš„
+					// æ ‡è®°è¯¥æ–¹å‘ä¸ºè¿é€š
 					if (r == chf.spans[i].reg)
 						res |= (1 << dir);
 				}
 
-				// Ç°ÃæÊÇÁ¬Í¨±ê¼Ç£¬ÕâÀïÈ¡·´£¬µÃµ½²»Á¬Í¨±ê¼Ç
+				// å‰é¢æ˜¯è¿é€šæ ‡è®°ï¼Œè¿™é‡Œå–åï¼Œå¾—åˆ°ä¸è¿é€šæ ‡è®°
 				flags[i] = res ^ 0xf; // Inverse, mark non connected edges.
 			}
 		}
@@ -945,8 +984,8 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	
 	ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 	
-	rcIntArray verts(256);
-	rcIntArray simplified(64);
+	rcIntArray verts(256); // ç”¨äºå­˜æ”¾è½®å»“ä¸Šé¡¶ç‚¹çš„ä¸´æ—¶æ•°ç»„
+	rcIntArray simplified(64); // ç”¨äºå­˜æ”¾å¹³æ»‘å¤„ç†åçš„è½®å»“é¡¶ç‚¹çš„ä¸´æ—¶æ•°ç»„
 	
 	for (int y = 0; y < h; ++y)
 	{
@@ -955,9 +994,9 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 			const rcCompactCell& c = chf.cells[x+y*w];
 			for (int i = (int)c.index, ni = (int)(c.index+c.count); i < ni; ++i)
 			{
-				// flags[i] == 0£ºÎŞreg¡¢±ß½çreg¡¢´¦ÓÚ region ÄÚ²¿Î»ÖÃ£¨ÒòÎªËÄ·½ÏòÁÚ½ÓµÄ¶¼ÊÇÏàÍ¬ reg µÄ span£©£¬ÕâÈıÖÖÇé¿ö¿ÉÒÔÖ±½ÓÂÔ¹ı
-				// flags[i] == 0xf£ºËÄ·½Ïò¾ù²»Á¬Í¨»ò¾ùÎª²»Í¬µÄ region£¬Ò²¿ÉÒÔÖ±½ÓÂÔ¹ı
-				// ÒòÎªÕâĞ©Çé¿öÀï£¬Õâ¸ö span ¿Ï¶¨²»ÊÇÂÖÀªÏßÉÏµÄÎ»ÖÃ£¬¶ÔÓÚ¹¹½¨ÂÖÀªÏßÃ»ÓĞ°ïÖú
+				// flags[i] == 0ï¼šæ— regã€è¾¹ç•Œregã€å¤„äº region å†…éƒ¨ä½ç½®ï¼ˆå› ä¸ºå››æ–¹å‘é‚»æ¥çš„éƒ½æ˜¯ç›¸åŒ reg çš„ spanï¼‰ï¼Œæˆ–è€…å‡ ä¸ªæ–¹å‘å‡å·²å¤„ç†å®Œæ¯•ï¼Œè¿™å››ç§æƒ…å†µå¯ä»¥ç›´æ¥ç•¥è¿‡
+				// flags[i] == 0xfï¼šå››æ–¹å‘å‡ä¸è¿é€šæˆ–å‡ä¸ºä¸åŒçš„ regionï¼Œä¹Ÿå¯ä»¥ç›´æ¥ç•¥è¿‡
+				// å› ä¸ºè¿™äº›æƒ…å†µé‡Œï¼Œè¿™ä¸ª span è‚¯å®šä¸æ˜¯è½®å»“çº¿ä¸Šçš„ä½ç½®ï¼Œå¯¹äºæ„å»ºè½®å»“çº¿æ²¡æœ‰å¸®åŠ©
 				if (flags[i] == 0 || flags[i] == 0xf)
 				{
 					flags[i] = 0;
@@ -968,29 +1007,30 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				if (!reg || (reg & RC_BORDER_REG))
 					continue;
 				const unsigned char area = chf.areas[i];
-				// µ½ÕâÀï£¬ i ´ú±íµÄÒ»¶¨ÊÇÔÚ region ÂÖÀªÏßµÄ span
+				// åˆ°è¿™é‡Œï¼Œ i ä»£è¡¨çš„ä¸€å®šæ˜¯åœ¨ region è½®å»“çº¿ä¸Šçš„ span
 
 				verts.clear();
 				simplified.clear();
 				
 				ctx->startTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 
-				// walkContour: ÈÆ×Å region ±ßÔµ±éÀúÒ»È¦£¬°Ñ±ßÔµµÄ¸ñ×Óµã×ø±ê¶¼±£´æµ½ verts Êı×éÖĞ
-				// Êı¾İ¸ñÊ½Îª£ºx h y r
-				// ·Ö±ğ¶ÔÓ¦¸ñ×Ó x Öá×ø±ê¡¢span µÄ±ßÔµ¸ß¶È¡¢¸ñ×ÓµÄ y ×ø±ê¡¢region ±ê¼Ç£¨·Ö¶Î±£´æÁË id¡¢ÊÇ·ñ±ßÔµ½Úµã¡¢ÊÇ·ñÇøÓò±ßÔµ£©
-				// ? RC_BORDER_VERTEX RC_AREA_BORDER RC_BORDER_REG Ê²Ã´Çø±ğ£¿
-				// ²ÂÏë£º£¨ºÃÏñÊÇ´íµÄ£©
-				// RC_BORDER_VERTEX ÊÇÎ»ÓÚÒ»Ìõ·Ö½çÏßÉÏµÄµã£¬ÁíÒ»±ß¿ÉÄÜÊÇ area ¿ÉÄÜ²»ÊÇ£¿
-				// RC_AREA_BORDER ÊÇÃ÷È·µÄÁ½¸ö area Ö®¼äµÄ½çÏŞ
+				// walkContour: ç»•ç€ region è¾¹ç¼˜éå†ä¸€åœˆï¼ŒæŠŠè¾¹ç¼˜çš„æ ¼å­ç‚¹åæ ‡éƒ½ä¿å­˜åˆ° verts æ•°ç»„ä¸­
+				// æ•°æ®æ ¼å¼ä¸ºï¼šx h y r
+				// åˆ†åˆ«å¯¹åº”æ ¼å­ x è½´åæ ‡ã€span çš„è¾¹ç¼˜é«˜åº¦ã€æ ¼å­çš„ y åæ ‡ã€region æ ‡è®°ï¼ˆåˆ†æ®µä¿å­˜äº† idã€æ˜¯å¦è¾¹ç¼˜èŠ‚ç‚¹ã€æ˜¯å¦åŒºåŸŸè¾¹ç¼˜ï¼‰
+				// ? RC_BORDER_VERTEX RC_AREA_BORDER RC_BORDER_REG ä»€ä¹ˆåŒºåˆ«ï¼Ÿ
+				// çŒœæƒ³ï¼šï¼ˆå¥½åƒæ˜¯é”™çš„ï¼‰
+				// RC_BORDER_VERTEX æ˜¯ä½äºä¸€æ¡åˆ†ç•Œçº¿ä¸Šçš„ç‚¹ï¼Œå¦ä¸€è¾¹å¯èƒ½æ˜¯ area å¯èƒ½ä¸æ˜¯ï¼Ÿ
+				// RC_AREA_BORDER æ˜¯æ˜ç¡®çš„ä¸¤ä¸ª area ä¹‹é—´çš„ç•Œé™
+				// RC_BORDER_REG ä»£è¡¨é«˜åº¦åœºé‡Œä¸€ä¸ª span å±äº borderï¼Œå±äºä¸å¯è¡Œèµ°åŒºåŸŸ
 				walkContour(x, y, i, chf, flags, verts);
 
 				ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 
 				ctx->startTimer(RC_TIMER_BUILD_CONTOURS_SIMPLIFY);
-				// simplifyContour: ½«ÇøÓòÂÖÀª½øĞĞ¼ò»¯´¦Àí
-				// Ö÷ÒªÊÇ£º
-				// 1.ÔÚ maxError ·¶Î§ÄÚ¶ÔÕÛÏß×öÆ½»¬´¦Àí
-				// 2.¶Ô´óÓÚ maxEdgeLen µÄÏß¶Î×ö²ğ·Ö´¦Àí
+				// simplifyContour: å°†åŒºåŸŸè½®å»“è¿›è¡Œç®€åŒ–å¤„ç†
+				// ä¸»è¦æ˜¯ï¼š
+				// 1.åœ¨ maxError èŒƒå›´å†…å¯¹æŠ˜çº¿åšå¹³æ»‘å¤„ç†
+				// 2.å¯¹å¤§äº maxEdgeLen çš„çº¿æ®µåšæ‹†åˆ†å¤„ç†
 				simplifyContour(verts, simplified, maxError, maxEdgeLen, buildFlags);
 				removeDegenerateSegments(simplified);
 

@@ -532,6 +532,9 @@ void rcFreePolyMeshDetail(rcPolyMeshDetail* dmesh);
 /// If a heightfield region ID has this bit set, then the region is a border 
 /// region and its spans are considered unwalkable.
 /// (Used during the region and contour build process.)
+/// RC_BORDER_REG ä»£è¡¨é«˜åº¦åœºé‡Œä¸€ä¸ª span å±äº borderï¼Œå±äºä¸å¯è¡Œèµ°åŒºåŸŸ
+/// ä»…ç”¨äºè¡¨ç¤º tile è¾¹ç•Œä¸Šä¸€å®šèŒƒå›´çš„åŒºåŸŸ
+/// åœ¨æ„å»º rcBuildRegions æ—¶ï¼Œå°† chf.borderSize æŒ‡å®šçš„ tile çš„è¾¹ç•ŒåŒºåŸŸæŒ‰è¡Œæˆ–åˆ—ç»™æ ‡è®°ä¸ºä¸åŒçš„ regionId | RC_BORDER_REG
 /// @see rcCompactSpan::reg
 static const unsigned short RC_BORDER_REG = 0x8000;
 
@@ -549,6 +552,8 @@ static const unsigned short RC_MULTIPLE_REGS = 0;
 /// vertex will later be removed in order to match the segments and vertices 
 /// at tile boundaries.
 /// (Used during the build process.)
+// å¯¹äº reg_idï¼Œå¦‚æœè¿™ä¸ªæ ‡è®°ä½è¢«è®¾ç½®ï¼Œä»£è¡¨ span ä½äº tile çš„è¾¹ç•ŒåŒºåŸŸï¼ˆborderSize æŒ‡å®šçš„åŒºåŸŸï¼‰
+// å¯¹äºè½®å»“é¡¶ç‚¹ï¼Œå¦‚æœè¿™ä¸ªæ ‡è®°ä½è¢«è®¾ç½®ï¼Œä»£è¡¨å¯ä»¥åœ¨ç”Ÿæˆè¿‡ç¨‹ä¸­è¢«åˆ æ‰è€Œä¸å½±å“è½®å»“çº¿çš„æ•ˆæœ
 /// @see rcCompactSpan::reg, #rcContour::verts, #rcContour::rverts
 static const int RC_BORDER_VERTEX = 0x10000;
 
@@ -556,6 +561,8 @@ static const int RC_BORDER_VERTEX = 0x10000;
 /// If a region ID has this bit set, then the associated element lies on
 /// the border of an area.
 /// (Used during the region and contour build process.)
+/// ä»£è¡¨è¯¥ span æ˜¯æ‰€å± region æœ€å¤–é¢ä¸€åœˆçš„è¾¹ç¼˜ span
+/// åªè¦è¯¥ span æœ‰é‚»æ¥ span ä¸å±äºåŒä¸€ä¸ªåŒºåŸŸå³å¯ï¼ˆåŒ…æ‹¬ä¸å¯è¡Œèµ°åŒºåŸŸï¼‰
 /// @see rcCompactSpan::reg, #rcContour::verts, #rcContour::rverts
 static const int RC_AREA_BORDER = 0x20000;
 
@@ -942,7 +949,7 @@ int rcGetHeightFieldSpanCount(rcContext* ctx, rcHeightfield& hf);
 /// @{
 
 /// Builds a compact heightfield representing open space, from a heightfield representing solid space.
-/// ´Ó solid span ¹¹½¨ open span Êı¾İ£¬²¢¼ÆËãÁÚ½Ó¹ØÏµ
+/// ä» solid span æ„å»º open span æ•°æ®ï¼Œå¹¶è®¡ç®—é‚»æ¥å…³ç³»
 ///  @ingroup recast
 ///  @param[in,out]	ctx				The build context to use during the operation.
 ///  @param[in]		walkableHeight	Minimum floor to 'ceiling' height that will still allow the floor area 
@@ -956,7 +963,7 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 							   rcHeightfield& hf, rcCompactHeightfield& chf);
 
 /// Erodes the walkable area within the heightfield by the specified radius. 
-/// ¸ù¾İÑ°Â·°ë¾¶²ÎÊı walkableRadius£¬ÔÚ±ß½çºÍÕÏ°­´¦±£Áô³öÒ»¶¨µÄ²»¿ÉĞĞ×ßÇøÓò
+/// æ ¹æ®å¯»è·¯åŠå¾„å‚æ•° walkableRadiusï¼Œåœ¨è¾¹ç•Œå’Œéšœç¢å¤„ä¿ç•™å‡ºä¸€å®šçš„ä¸å¯è¡Œèµ°åŒºåŸŸ
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		radius	The radius of erosion. [Limits: 0 < value < 255] [Units: vx]
@@ -965,8 +972,8 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf);
 
 /// Applies a median filter to walkable area types (based on area id), removing noise.
-/// Æ½»¬½µÔë´¦Àí£¬½«Ò»¸ö span µÄ area id ÉèÖÃÎªÆä¾Å¹¬¸ñÄÚ area id µÄÖĞÎ»Êı
-/// area id ¾ßÓĞÊıÖµ´óĞ¡µÄÒâÒåÂğ£¿
+/// å¹³æ»‘é™å™ªå¤„ç†ï¼Œå°†ä¸€ä¸ª span çš„ area id è®¾ç½®ä¸ºå…¶ä¹å®«æ ¼å†… area id çš„ä¸­ä½æ•°
+/// area id å…·æœ‰æ•°å€¼å¤§å°çš„æ„ä¹‰å—ï¼Ÿ
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in,out]	chf		A populated compact heightfield.
@@ -974,7 +981,7 @@ bool rcErodeWalkableArea(rcContext* ctx, int radius, rcCompactHeightfield& chf);
 bool rcMedianFilterWalkableArea(rcContext* ctx, rcCompactHeightfield& chf);
 
 /// Applies an area id to all spans within the specified bounding box. (AABB) 
-/// ½«Óë AABB °üÎ§ºĞÏà½»µÄ¿ÉĞĞ×ß open span ÉèÖÃÎª¸ø¶¨µÄ area id
+/// å°†ä¸ AABB åŒ…å›´ç›’ç›¸äº¤çš„å¯è¡Œèµ° open span è®¾ç½®ä¸ºç»™å®šçš„ area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		bmin	The minimum of the bounding box. [(x, y, z)]
@@ -985,7 +992,7 @@ void rcMarkBoxArea(rcContext* ctx, const float* bmin, const float* bmax, unsigne
 				   rcCompactHeightfield& chf);
 
 /// Applies the area id to the all spans within the specified convex polygon. 
-/// ½«Ö¸¶¨Í¹¶à±ßĞÎ·¶Î§ÄÚµÄËùÓĞ¿ÉĞĞ×ß span ±ê¼ÇÎª¸ø¶¨µÄ area id
+/// å°†æŒ‡å®šå‡¸å¤šè¾¹å½¢èŒƒå›´å†…çš„æ‰€æœ‰å¯è¡Œèµ° span æ ‡è®°ä¸ºç»™å®šçš„ area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		verts	The vertices of the polygon [Fomr: (x, y, z) * @p nverts]
@@ -1009,7 +1016,7 @@ int rcOffsetPoly(const float* verts, const int nverts, const float offset,
 				 float* outVerts, const int maxOutVerts);
 
 /// Applies the area id to all spans within the specified cylinder.
-/// ½«Óë ÖùÌå °üÎ§ºĞÏà½»µÄ¿ÉĞĞ×ß open span ÉèÖÃÎª¸ø¶¨µÄ area id
+/// å°†ä¸ æŸ±ä½“ åŒ…å›´ç›’ç›¸äº¤çš„å¯è¡Œèµ° open span è®¾ç½®ä¸ºç»™å®šçš„ area id
 ///  @ingroup recast
 ///  @param[in,out]	ctx		The build context to use during the operation.
 ///  @param[in]		pos		The center of the base of the cylinder. [Form: (x, y, z)] 
@@ -1029,7 +1036,7 @@ void rcMarkCylinderArea(rcContext* ctx, const float* pos,
 bool rcBuildDistanceField(rcContext* ctx, rcCompactHeightfield& chf);
 
 /// Builds region data for the heightfield using watershed partitioning.
-/// Ê¹ÓÃ·ÖË®ÁëËã·¨£¬¸ù¾İ¾àÀë³¡Êı¾İ£¬½øĞĞÇøÓò»®·Ö
+/// ä½¿ç”¨åˆ†æ°´å²­ç®—æ³•ï¼Œæ ¹æ®è·ç¦»åœºæ•°æ®ï¼Œè¿›è¡ŒåŒºåŸŸåˆ’åˆ†
 ///  @ingroup recast
 ///  @param[in,out]	ctx				The build context to use during the operation.
 ///  @param[in,out]	chf				A populated compact heightfield.
@@ -1088,7 +1095,8 @@ inline void rcSetCon(rcCompactSpan& s, int dir, int i)
 inline int rcGetCon(const rcCompactSpan& s, int dir)
 {
 	const unsigned int shift = (unsigned int)dir*6;
-	return (s.con >> shift) & 0x3f;
+	int ret = (s.con >> shift) & 0x3f;
+	return ret;
 }
 
 /// Gets the standard width (x-axis) offset for the specified direction.
@@ -1141,7 +1149,7 @@ bool rcBuildHeightfieldLayers(rcContext* ctx, rcCompactHeightfield& chf,
 							  rcHeightfieldLayerSet& lset);
 
 /// Builds a contour set from the region outlines in the provided compact heightfield.
-/// ½«Á¬Í¨µÄ open span ×é³ÉµÄÇøÓòÃè³öÂÖÀªÁ¬Ïß
+/// å°†è¿é€šçš„ open span ç»„æˆçš„åŒºåŸŸæå‡ºè½®å»“è¿çº¿
 ///  @ingroup recast
 ///  @param[in,out]	ctx			The build context to use during the operation.
 ///  @param[in]		chf			A fully built compact heightfield.
