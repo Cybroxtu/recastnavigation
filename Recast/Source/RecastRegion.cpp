@@ -871,6 +871,7 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 {
 	const int w = chf.width;
 	const int h = chf.height;
+    mergeRegionSize = 200;
 	
 	const int nreg = maxRegionId+1;
 	rcTempVector<rcRegion> regions;
@@ -1034,14 +1035,15 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 
 			// Check to see if the region should be merged.
 			// 面积满足要求、且与边缘处连接的区域，不用再合并到邻接区域
-			// 也就是说，非边界的大区域、边界的小区域，都需要合并到邻接区域中
+			// 非边界的大区域、边界的小区域，都需要合并到邻接区域中
+			// 也就是说，被多个 region 包围起来的 region，只要邻接 region 满足合并条件，是一定会被合并的
 			if (reg.spanCount > mergeRegionSize && isRegionConnectedToBorder(reg))
 				continue;
 
 			// Small region with more than 1 connection.
 			// Or region which is not connected to a border at all.
 			// Find smallest neighbour region that connects to this one.
-			// 找到可以合并的、面积最小的邻接区域
+			// 找到满足合并条件的、面积最小的邻接区域
 			int smallest = 0xfffffff;
 			unsigned short mergeId = reg.id;
 			for (int j = 0; j < reg.connections.size(); ++j)
@@ -1065,10 +1067,11 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 				rcRegion& target = regions[mergeId];
 
 				// Merge neighbours.
-				// 进行合并操作，因为 reg id 变化了，需要修正其它区域的邻接关系
+                // 找到了满足合并条件的邻接 region，进行合并操作，将 reg 合并到 target 区域中
 				if (mergeRegions(target, reg))
 				{
 					// Fixup regions pointing to current region.
+                    // 因为 reg id 变化了，需要修正其它区域用到这个旧 id 的地方
 					for (int j = 0; j < nreg; ++j)
 					{
 						if (regions[j].id == 0 || (regions[j].id & RC_BORDER_REG)) continue;
