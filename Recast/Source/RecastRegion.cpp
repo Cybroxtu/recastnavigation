@@ -588,17 +588,17 @@ struct rcRegion
 		ymin(0xffff),
 		ymax(0)
 	{}
-	
+
 	int spanCount;					// Number of spans belonging to this region
 	unsigned short id;				// ID of the region
 	unsigned char areaType;			// Are type.
-	bool remap;
+	bool remap; // ?
 	bool visited;
-	bool overlap;
-	bool connectsToBorder;
+	bool overlap; // 垂直方向上是否存在相同 reg id 的重叠 span，是的话无法被合并
+	bool connectsToBorder; // 该区域是否邻接 tile 边缘，是的话即使是小区域也不能被删除
 	unsigned short ymin, ymax;
-	rcIntArray connections;
-	rcIntArray floors;
+	rcIntArray connections; // 用于保存该区域轮廓上邻接的所有 reg id，仅连续相同的 reg id 做去重处理，用于判断两个区域是否能合并，多于 1 个重合 reg id 的两个区域不能合并
+	rcIntArray floors; // 用于保存该区域垂直方向上的所有 reg id，用于判断两块区域是否能合并：垂直方向上有重叠的区域不能合并
 };
 
 static void removeAdjacentNeighbours(rcRegion& reg)
@@ -639,6 +639,10 @@ static void replaceNeighbour(rcRegion& reg, unsigned short oldId, unsigned short
 		removeAdjacentNeighbours(reg);
 }
 
+// 判断两个 region 是否可以合并：
+// 1. area 必须相同
+// 2. 只有一段连续的边是相邻的，（n > 1）代表两个区域中间可能还夹着别的区域
+// 3. 两块区域在垂直方向上不存在重叠
 static bool canMergeWithRegion(const rcRegion& rega, const rcRegion& regb)
 {
 	if (rega.areaType != regb.areaType)
@@ -736,6 +740,8 @@ static bool isRegionConnectedToBorder(const rcRegion& reg)
 	return false;
 }
 
+// 如果两个邻接 span 属于同一个 region，则不是 solid edge
+// 否则是 solid edge
 static bool isSolidEdge(rcCompactHeightfield& chf, const unsigned short* srcReg,
 						int x, int y, int i, int dir)
 {
@@ -771,7 +777,7 @@ static void walkContour(int x, int y, int i, int dir,
 		curReg = srcReg[ai];
 	}
 	cont.push(curReg);
-			
+
 	int iter = 0;
 	while (++iter < 40000)
 	{
@@ -788,6 +794,7 @@ static void walkContour(int x, int y, int i, int dir,
 				const int ai = (int)chf.cells[ax+ay*chf.width].index + rcGetCon(s, dir);
 				r = srcReg[ai];
 			}
+			// 连续相同的 reg id 只入队一次
 			if (r != curReg)
 			{
 				curReg = r;
@@ -824,6 +831,7 @@ static void walkContour(int x, int y, int i, int dir,
 	}
 
 	// Remove adjacent duplicates.
+	// 继续去重，前面的计算过程其实是有避免连续的重复 reg id 的，这里应该只有头尾可能重复吧
 	if (cont.size() > 1)
 	{
 		for (int j = 0; j < cont.size(); )
@@ -872,11 +880,13 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 				unsigned short r = srcReg[i];
 				if (r == 0 || r >= nreg)
 					continue;
-				
+
 				rcRegion& reg = regions[r];
-				reg.spanCount++;
-				
+				reg.spanCount++; // 统计 region 面积大小
+
 				// Update floors.
+				// 遍历垂直方向上所有其它 span，检查是否存在重叠的 reg id
+				// 并使用 reg.floors 记录遇到的所有 reg id【这一步干嘛的？】
 				for (int j = (int)c.index; j < ni; ++j)
 				{
 					if (i == j) continue;
@@ -884,17 +894,22 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 					if (floorId == 0 || floorId >= nreg)
 						continue;
 					if (floorId == r)
-						reg.overlap = true;
+						reg.overlap = true; // 标记 reg 存在重叠
+					// 将垂直方向上的其它 reg id 保存下来
 					addUniqueFloorRegion(reg, floorId);
 				}
-				
+
 				// Have found contour
+				// connections 数量大于 0，说明该 region 已经被处理过了，直接跳过
 				if (reg.connections.size() > 0)
 					continue;
-				
+
 				reg.areaType = chf.areas[i];
-				
+
 				// Check if this cell is next to a border.
+				// 遍历当前 span 的四方向邻接 span 里，是否存在不连通、或者不同 reg id 的方向
+				// 存在的话，则代表该 span 处于 region 的边缘位置
+				// 此时从该方向开始，沿着区域的边缘进行遍历，将外边界上一圈的 reg id 保存到 reg.connections 中（连续、相同的 reg id 去重处理）
 				int ndir = -1;
 				for (int dir = 0; dir < 4; ++dir)
 				{
@@ -904,7 +919,6 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 						break;
 					}
 				}
-				
 				if (ndir != -1)
 				{
 					// The cell is at border.
@@ -927,17 +941,19 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 			continue;
 		if (reg.visited)
 			continue;
-		
+
 		// Count the total size of all the connected regions.
 		// Also keep track of the regions connects to a tile border.
-		bool connectsToBorder = false;
-		int spanCount = 0;
+		bool connectsToBorder = false; // 是否与 tile 边界相邻
+		int spanCount = 0; // 可达区域的累加面积大小
 		stack.clear();
 		trace.clear();
 
 		reg.visited = true;
 		stack.push(i);
-		
+
+		// bfs 搜索邻接区域
+		// 统计
 		while (stack.size())
 		{
 			// Pop
@@ -965,12 +981,13 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 				neireg.visited = true;
 			}
 		}
-		
+
 		// If the accumulated regions size is too small, remove it.
 		// Do not remove areas which connect to tile borders
 		// as their size cannot be estimated correctly and removing them
 		// can potentially remove necessary areas.
-		// 如果当前区域小于 minRegionArea，则将其剔除，但是对于邻接 tile 边界的区域，则必须保留
+		// 这里的 spanCount 不是单个区域的大小，而是在硬边界内、从区域 i 处可达的所有区域的累加大小
+		// 如果累加区域大小小于 minRegionArea，则将相关区域剔除掉，但是如果其中有邻接 tile 边界的，则必须保留
 		// 因为后续与其进行连接的邻接 tile 可能会需要这一块区域（本来就是一大块连续区域，只是被 tile 边界分割了开来）
 		// 贸然删除的话，可能导致生成不正确的网格
 		if (spanCount < minRegionArea && !connectsToBorder)
@@ -994,18 +1011,19 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 			rcRegion& reg = regions[i];
 			if (reg.id == 0 || (reg.id & RC_BORDER_REG))
 				continue;
-			if (reg.overlap)
+			if (reg.overlap) // 不合并垂直方向上有重叠的 region。什么情况下会在垂直方向上有 region 的重叠呢？
 				continue;
 			if (reg.spanCount == 0)
 				continue;
-			
+
 			// Check to see if the region should be merged.
 			if (reg.spanCount > mergeRegionSize && isRegionConnectedToBorder(reg))
 				continue;
-			
+
 			// Small region with more than 1 connection.
 			// Or region which is not connected to a border at all.
 			// Find smallest neighbour region that connects to this one.
+			// 找到可以合并的、面积最小的邻接区域
 			int smallest = 0xfffffff;
 			unsigned short mergeId = reg.id;
 			for (int j = 0; j < reg.connections.size(); ++j)
@@ -1021,13 +1039,15 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 					mergeId = mreg.id;
 				}
 			}
+
 			// Found new id.
 			if (mergeId != reg.id)
 			{
 				unsigned short oldId = reg.id;
 				rcRegion& target = regions[mergeId];
-				
+
 				// Merge neighbours.
+				// 进行合并操作，因为 reg id 变化了，需要修正其它区域的邻接关系
 				if (mergeRegions(target, reg))
 				{
 					// Fixup regions pointing to current region.
