@@ -149,8 +149,7 @@ static void walkContour(int x, int y, int i,
 			bool isAreaBorder = false;
 			int px = x;
 
-			// CornerHeight 是 当前span、左、左下、下 四个方向里的最大高度
-			// ?为什么只计算左下方？
+			// CornerHeight 是span 按给定 dir 出发，和右边一排构成的四个格子的正方形的最大高度
 			// isBorderVertex，是否是边缘上的节点
 			// 含义是对于组成一个正方形的相邻四个 span，如果横平竖直方向上，两两的连线正好分属两个不同的区域
 			// 则可以认为这几个点正好在边缘上
@@ -162,12 +161,14 @@ static void walkContour(int x, int y, int i,
 			// CA|BD
 			int py = getCornerHeight(x, y, i, dir, chf, isBorderVertex);
 			int pz = y;
+			// 这里 px pz 是格子的 x y 坐标
 			switch(dir)
 			{
-				// 这里 px pz 是格子的 x y 坐标
+				// 当 dir = 0 时，下方的格子一定是
 				case 0: pz++; break; // 左方不连通，获取下方的格子坐标
 				case 1: px++; pz++; break; // 上方不连通，获取右下方的格子坐标？
-				case 2: px++; break; // 右方不连通，就获取右方格子的坐标？？？
+				case 2: px++; break; // 右方不连通，就获取右方格子的坐标？
+				// 下方不连通，直接使用当前格子坐标
 			}
 
 			int r = 0;
@@ -188,6 +189,8 @@ static void walkContour(int x, int y, int i,
 				r |= RC_BORDER_VERTEX; // 65536 - 0x1 0000
 			if (isAreaBorder)
 				r |= RC_AREA_BORDER; // 131072 - 0x2 0000
+
+			// points 里的点是逆时针的？
 			points.push(px);
 			points.push(py);
 			points.push(pz);
@@ -934,7 +937,8 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	ctx->startTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
 	
 	// Mark boundaries.
-	// 这里是将所有 span 四方向里不连通的边标记出来
+	// 这里是将所有 span 四方向里不连通的边标记出来，保存到 flags 数组中
+	// 供后续 walkContour 使用
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -979,6 +983,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	rcIntArray verts(256); // 用于存放轮廓上顶点的临时数组
 	rcIntArray simplified(64); // 用于存放平滑处理后的轮廓顶点的临时数组
 	
+	// 遍历所有的 span，将 flags[i] != 0 的 span 所属的区域进行描边处理
 	for (int y = 0; y < h; ++y)
 	{
 		for (int x = 0; x < w; ++x)
@@ -996,7 +1001,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				}
 
 				const unsigned short reg = chf.spans[i].reg;
-				if (!reg || (reg & RC_BORDER_REG))
+				if (!reg || (reg & RC_BORDER_REG)) // 这个判断是多余的
 					continue;
 				const unsigned char area = chf.areas[i];
 				// 到这里， i 代表的一定是在 region 轮廓线上的 span
@@ -1024,6 +1029,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				// 1.在 maxError 范围内对折线做平滑处理
 				// 2.对大于 maxEdgeLen 的线段做拆分处理
 				simplifyContour(verts, simplified, maxError, maxEdgeLen, buildFlags);
+				// 将相邻的 x z 坐标相等的点进行合并
 				removeDegenerateSegments(simplified);
 
 				ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_SIMPLIFY);

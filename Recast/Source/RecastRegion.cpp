@@ -37,7 +37,8 @@ struct LevelStackEntry
 };
 }  // namespace
 
-// 计算距离场
+// 计算距离场，也就是每个 span 距离边界区域的距离
+// 用于后续分水岭算法进行区域划分
 static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* src, unsigned short& maxDist)
 {
 	const int w = chf.width;
@@ -195,6 +196,8 @@ static void calculateDistanceField(rcCompactHeightfield& chf, unsigned short* sr
 	
 }
 
+// 方框模糊算法
+// 将大于阈值的 span 边界距离调整为九宫格加权平均值
 static unsigned short* boxBlur(rcCompactHeightfield& chf, int thr,
 							   unsigned short* src, unsigned short* dst)
 {
@@ -244,17 +247,20 @@ static unsigned short* boxBlur(rcCompactHeightfield& chf, int thr,
 					}
 					else
 					{
+						// 按理说不会走到这里来，因为如果有邻接不连通的情况，那 cd 应该是 0
+						// 乘以 2 是为了什么？
 						d += cd*2;
 					}
 				}
-				dst[i] = (unsigned short)((d+5)/9);
+				dst[i] = (unsigned short)((d+5)/9); // + 5 也许是某种 tweak 吧
 			}
 		}
 	}
 	return dst;
 }
 
-
+// 用 bfs 算法，从给定 span[i] 开始
+// 将水平线 lev 相关的 span 标记为指定的 reg id
 static bool floodRegion(int x, int y, int i,
 						unsigned short level, unsigned short r,
 						rcCompactHeightfield& chf,
@@ -262,18 +268,20 @@ static bool floodRegion(int x, int y, int i,
 						rcTempVector<LevelStackEntry>& stack)
 {
 	const int w = chf.width;
-	
+
 	const unsigned char area = chf.areas[i];
-	
+
 	// Flood fill mark region.
 	stack.clear();
 	stack.push_back(LevelStackEntry(x, y, i));
 	srcReg[i] = r;
 	srcDist[i] = 0;
-	
+
+	// 水平线，每次减 2
 	unsigned short lev = level >= 2 ? level-2 : 0;
 	int count = 0;
-	
+
+	// bfs loop
 	while (stack.size() > 0)
 	{
 		LevelStackEntry& back = stack.back();
@@ -281,10 +289,12 @@ static bool floodRegion(int x, int y, int i,
 		int cy = back.y;
 		int ci = back.index;
 		stack.pop_back();
-		
+
 		const rcCompactSpan& cs = chf.spans[ci];
-		
+
 		// Check if any of the neighbours already have a valid region set.
+		// 判断 8 方向邻接且相同 area 的 span 里，是否已经被分配了与 r 不同的 reg id
+		// 如果已经有不等于 r 的 reg id 分配，则放弃对当前 span 进行 reg 标记，从 r 回退到 0，等待后续处理
 		unsigned short ar = 0;
 		for (int dir = 0; dir < 4; ++dir)
 		{
@@ -304,9 +314,10 @@ static bool floodRegion(int x, int y, int i,
 					ar = nr;
 					break;
 				}
-				
+
 				const rcCompactSpan& as = chf.spans[ai];
-				
+
+				// 判断斜向的邻接 span
 				const int dir2 = (dir+1) & 0x3;
 				if (rcGetCon(as, dir2) != RC_NOT_CONNECTED)
 				{
@@ -321,18 +332,23 @@ static bool floodRegion(int x, int y, int i,
 						ar = nr2;
 						break;
 					}
-				}				
+				}
 			}
 		}
+
 		if (ar != 0)
 		{
+			// 放弃对当前 span 进行 reg 标记
 			srcReg[ci] = 0;
 			continue;
 		}
-		
+
 		count++;
-		
+
 		// Expand neighbours.
+		// 到这里意味着当前 span 八方向邻接里，没有 （连通、area 相同、已经被分配过 reg id） 的 span
+		// 则代表这个 span 可以安全地被标记为一个新的 reg id
+		// 下一步就是将当前 span 连通、area 相同、且未被分配过 reg id 的邻接 span 加入队列中，等待下一次遍历
 		for (int dir = 0; dir < 4; ++dir)
 		{
 			if (rcGetCon(cs, dir) != RC_NOT_CONNECTED)
@@ -342,6 +358,8 @@ static bool floodRegion(int x, int y, int i,
 				const int ai = (int)chf.cells[ax+ay*w].index + rcGetCon(cs, dir);
 				if (chf.areas[ai] != area)
 					continue;
+
+				// TODO lev
 				if (chf.dist[ai] >= lev && srcReg[ai] == 0)
 				{
 					srcReg[ai] = r;
@@ -351,7 +369,7 @@ static bool floodRegion(int x, int y, int i,
 			}
 		}
 	}
-	
+
 	return count > 0;
 }
 
@@ -364,18 +382,27 @@ struct DirtyEntry
 	unsigned short region;
 	unsigned short distance2;
 };
+
+// 区域扩展
+// 这里是将给定水平线上的 span 从其邻接已分配 reg id 的区域进行扩展
+// 也就是从已经分配 reg id 的区域，向外扩张一圈
 static void expandRegions(int maxIter, unsigned short level,
 					      rcCompactHeightfield& chf,
 					      unsigned short* srcReg, unsigned short* srcDist,
 					      rcTempVector<LevelStackEntry>& stack,
 					      bool fillStack)
 {
+	// 这个函数应该相当于是个变体的 bfs
+	// 因为初始只有 tile 边缘才有
+
 	const int w = chf.width;
 	const int h = chf.height;
 
 	if (fillStack)
 	{
 		// Find cells revealed by the raised level.
+		// 忽略输入 stack 的数据，将其清空
+		// 再将距离场数据大于给定水平值 level 且未被分配过 reg id 的可行走 span 添加到栈中
 		stack.clear();
 		for (int y = 0; y < h; ++y)
 		{
@@ -395,6 +422,8 @@ static void expandRegions(int maxIter, unsigned short level,
 	else // use cells in the input stack
 	{
 		// mark all cells which already have a region
+		// 直接使用输入 stack 的元素
+		// 但是将其中已经被分配过 reg id 的 span 标记为已经处理过
 		for (int j=0; j<stack.size(); j++)
 		{
 			int i = stack[j].index;
@@ -409,7 +438,11 @@ static void expandRegions(int maxIter, unsigned short level,
 	{
 		int failed = 0;
 		dirtyEntries.clear();
-		
+
+		// 遍历栈中所有的 span 元素
+		// 如果其四方向邻接 span 中有相同 area、已分配过 reg id、且不是 tile 边界的 span
+		// 就可以认为当前 span 可以从该区域安全地进行扩展
+		// 那么找到其中最小的距离值，并在后续流程统一将自己的 srcReg 和 srcDist 更新为对应的值
 		for (int j = 0; j < stack.size(); j++)
 		{
 			int x = stack[j].x;
@@ -420,8 +453,8 @@ static void expandRegions(int maxIter, unsigned short level,
 				failed++;
 				continue;
 			}
-			
-			unsigned short r = srcReg[i];
+
+			unsigned short r = srcReg[i]; // 这里取的是 spans[i] 的 reg id
 			unsigned short d2 = 0xffff;
 			const unsigned char area = chf.areas[i];
 			const rcCompactSpan& s = chf.spans[i];
@@ -434,6 +467,7 @@ static void expandRegions(int maxIter, unsigned short level,
 				if (chf.areas[ai] != area) continue;
 				if (srcReg[ai] > 0 && (srcReg[ai] & RC_BORDER_REG) == 0)
 				{
+					// 这里 + 2 是因为四方向邻接格子的距离视为 2
 					if ((int)srcDist[ai]+2 < (int)d2)
 					{
 						r = srcReg[ai];
@@ -441,6 +475,7 @@ static void expandRegions(int maxIter, unsigned short level,
 					}
 				}
 			}
+
 			if (r)
 			{
 				stack[j].index = -1; // mark as used
@@ -451,17 +486,23 @@ static void expandRegions(int maxIter, unsigned short level,
 				failed++;
 			}
 		}
-		
+
 		// Copy entries that differ between src and dst to keep them in sync.
+		// 将 dirty 队列中的 reg id 和 dist 更新到 srcReg 和 srcDist 中
+		// 修改先放到临时数据中，遍历完毕再进行更新
+		// 以此保证 region 只扩充一圈的范围，而不会连锁蔓延出去
 		for (int i = 0; i < dirtyEntries.size(); i++) {
 			int idx = dirtyEntries[i].index;
 			srcReg[idx] = dirtyEntries[i].region;
 			srcDist[idx] = dirtyEntries[i].distance2;
 		}
-		
+
+		// 没有可以继续扩展的元素了，中断流程
 		if (failed == stack.size())
 			break;
-		
+
+		// 当 level 等于 0 时，必须处理完所有剩下的元素
+		// 否则最多只处理 8 轮，未处理完的队列元素会被复制到下一个队列继续处理
 		if (level > 0)
 		{
 			++iter;
@@ -472,7 +513,7 @@ static void expandRegions(int maxIter, unsigned short level,
 }
 
 
-
+// 通过距离场数据，将 span 划分到代表不同水平线的栈中，供后续处理使用
 static void sortCellsByLevel(unsigned short startLevel,
 							  rcCompactHeightfield& chf,
 							  const unsigned short* srcReg,
@@ -481,6 +522,12 @@ static void sortCellsByLevel(unsigned short startLevel,
 {
 	const int w = chf.width;
 	const int h = chf.height;
+
+	// loglevelsPerStack 代表每个栈上对应水平线的数量的对数
+	// 水平线就是距离场数据上，相同距离的 span 组成的线条
+	// 其值固定为 1，代表每个 stack 用于存储 2 个水平线距离的元素
+	// 后面要与距离进行判断，因为一个 sId 要保存两个单位距离的元素
+	// 所以这里的 startLevel 和后面的 chf.dist[i] 都除以了 2
 	startLevel = startLevel >> loglevelsPerStack;
 
 	for (unsigned int j=0; j<nbStacks; ++j)
@@ -496,9 +543,13 @@ static void sortCellsByLevel(unsigned short startLevel,
 			{
 				if (chf.areas[i] == RC_NULL_AREA || srcReg[i] != 0)
 					continue;
-
 				int level = chf.dist[i] >> loglevelsPerStack;
+				// 这个计算方式是为了将 level 按照数值大小进行倒排
+				// 越大的 level，sId 越接近 0，越小的 level，sId 越接近上限
 				int sId = startLevel - level;
+				// 分水岭算法应该是从 level 较高的地方开始进行
+				// 所以当 level 太小时，可以先不用考虑对其进行处理，直接跳过
+				// 但是 level 太高时，多半是没处理完的遗留部分，必须添加到 0 号队列中继续处理
 				if (sId >= (int)nbStacks)
 					continue;
 				if (sId < 0)
@@ -919,6 +970,9 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 		// Do not remove areas which connect to tile borders
 		// as their size cannot be estimated correctly and removing them
 		// can potentially remove necessary areas.
+		// 如果当前区域小于 minRegionArea，则将其剔除，但是对于邻接 tile 边界的区域，则必须保留
+		// 因为后续与其进行连接的邻接 tile 可能会需要这一块区域（本来就是一大块连续区域，只是被 tile 边界分割了开来）
+		// 贸然删除的话，可能导致生成不正确的网格
 		if (spanCount < minRegionArea && !connectsToBorder)
 		{
 			// Kill all visited regions.
@@ -1553,20 +1607,27 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 
 	const int LOG_NB_STACKS = 3;
 	const int NB_STACKS = 1 << LOG_NB_STACKS;
+	// 用于保存不同的水平线上待处理的 span 信息
 	rcTempVector<LevelStackEntry> lvlStacks[NB_STACKS];
 	for (int i=0; i<NB_STACKS; ++i)
 		lvlStacks[i].reserve(256);
 
+	// 用于保存 floodRegion 淹没填充 region 时的待处理 span 数据
 	rcTempVector<LevelStackEntry> stack;
 	stack.reserve(256);
 	
+	// srcReg 用于临时存储 span 对应的 reg id
 	unsigned short* srcReg = buf;
+	// srcDist 用于临时存储 span 对应的 reg id
 	unsigned short* srcDist = buf+chf.spanCount;
 	
 	memset(srcReg, 0, sizeof(unsigned short)*chf.spanCount);
 	memset(srcDist, 0, sizeof(unsigned short)*chf.spanCount);
 	
+	// 从 1 开始标记区域
 	unsigned short regionId = 1;
+	// level 代表水平线（分水岭算法），水平线最高的区域就是 chf.maxDistance
+	// (chf.maxDistance + 1) & ~1 应该是为了将其向上取偶数，方便后面除 2 处理
 	unsigned short level = (chf.maxDistance+1) & ~1;
 
 	// TODO: Figure better formula, expandIters defines how much the 
@@ -1597,6 +1658,8 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 	chf.borderSize = borderSize;
 
 	int sId = -1;
+	// 水平线 level 从 maxDistance 开始，每次处理两个单位的距离
+	// 直到 level 降到 0，抵达距离场的边缘位置
 	while (level > 0)
 	{
 		level = level >= 2 ? level-2 : 0;
@@ -1605,9 +1668,15 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 //		ctx->startTimer(RC_TIMER_DIVIDE_TO_LEVELS);
 
 		if (sId == 0)
+		{
+			// 根据距离场数据填充各水平线对应的 stack 队列
 			sortCellsByLevel(level, chf, srcReg, NB_STACKS, lvlStacks, 1);
-		else 
+		}
+		else
+		{
+			// 将前一个 stack 中遗留的未被分配 reg id 的元素复制到当前 stack 中继续处理
 			appendStacks(lvlStacks[sId-1], lvlStacks[sId], srcReg); // copy left overs from last level
+		}
 
 //		ctx->stopTimer(RC_TIMER_DIVIDE_TO_LEVELS);
 
@@ -1615,13 +1684,18 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 			rcScopedTimer timerExpand(ctx, RC_TIMER_BUILD_REGIONS_EXPAND);
 
 			// Expand current regions until no empty connected cells found.
+			// 首先将当前 level 根据之前的数据进行一次 region 扩展
+			// 首次遍历时，没有实际操作
+			// 后续会将当前水平线与前一个水平线临近的同 area 的 span 也划归到前一个 level 的区域中
 			expandRegions(expandIters, level, chf, srcReg, srcDist, lvlStacks[sId], false);
 		}
-		
+
 		{
 			rcScopedTimer timerFloor(ctx, RC_TIMER_BUILD_REGIONS_FLOOD);
 
 			// Mark new regions with IDs.
+			// 然后以当前水平线上的所有 span 为起点，依次进行淹没填充
+			// 也就是通过 BFS，将距离在水平线以上的、未被分配 reg id 的、拥有相同 area 的邻接 span 都标记为新的 reg id
 			for (int j = 0; j<lvlStacks[sId].size(); j++)
 			{
 				LevelStackEntry current = lvlStacks[sId][j];
@@ -1630,6 +1704,7 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 				int i = current.index;
 				if (i >= 0 && srcReg[i] == 0)
 				{
+					// 从格子 (x, y) 开始，将 regionId 标记到相关的 span
 					if (floodRegion(x, y, i, level, regionId, chf, srcReg, srcDist, stack))
 					{
 						if (regionId == 0xFFFF)
@@ -1637,23 +1712,31 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 							ctx->log(RC_LOG_ERROR, "rcBuildRegions: Region ID overflow");
 							return false;
 						}
-						
+
 						regionId++;
 					}
 				}
 			}
 		}
 	}
-	
+
 	// Expand current regions until no empty connected cells found.
+	// 最后再尝试将现有的 region 进行一次扩充，应该主要用于填补中间缺漏的区域
+	// 注意 fillStack 为 true，level 为 0
+	// 也就是所有未被分配 reg id 的可行走 span 均会被检测
+	// 并被设置为其距离最小的同 area 的邻接 span 所属的 reg id
+	// 这里的 expandIters*8 没有意义，因为当 level 为 0 时，不会提前结束遍历
 	expandRegions(expandIters*8, 0, chf, srcReg, srcDist, stack, true);
-	
+
 	ctx->stopTimer(RC_TIMER_BUILD_REGIONS_WATERSHED);
-	
+
 	{
 		rcScopedTimer timerFilter(ctx, RC_TIMER_BUILD_REGIONS_FILTER);
 
 		// Merge regions and filter out smalle regions.
+		// 对产生的 region 进行一次合并与筛选
+		// 小于 minRegionArea 且不在 tile 边界上的区域需要剔除掉
+		// 小于 mergeRegionArea 的区域尝试与邻接区域进行合并
 		rcIntArray overlaps;
 		chf.maxRegions = regionId;
 		if (!mergeAndFilterRegions(ctx, minRegionArea, mergeRegionArea, chf.maxRegions, chf, srcReg, overlaps))
