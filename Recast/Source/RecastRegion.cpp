@@ -281,7 +281,6 @@ static bool floodRegion(int x, int y, int i,
 	unsigned short lev = level >= 2 ? level-2 : 0;
 	int count = 0;
 
-	// bfs loop
 	while (stack.size() > 0)
 	{
 		LevelStackEntry& back = stack.back();
@@ -359,7 +358,8 @@ static bool floodRegion(int x, int y, int i,
 				if (chf.areas[ai] != area)
 					continue;
 
-				// TODO lev
+				// 因为 rcBuildRegion 是按 level 从高至低进行遍历
+				// 所以只处理 dist 比当前水平线 lev 大且没有被分配过 reg id 的邻接 span
 				if (chf.dist[ai] >= lev && srcReg[ai] == 0)
 				{
 					srcReg[ai] = r;
@@ -548,8 +548,8 @@ static void sortCellsByLevel(unsigned short startLevel,
 				// 越大的 level，sId 越接近 0，越小的 level，sId 越接近上限
 				int sId = startLevel - level;
 				// 分水岭算法应该是从 level 较高的地方开始进行
-				// 所以当 level 太小时，可以先不用考虑对其进行处理，直接跳过
-				// 但是 level 太高时，多半是没处理完的遗留部分，必须添加到 0 号队列中继续处理
+				// 所以当 level 太小导致 sId 大于上限时，可以先不用考虑对其进行处理，直接跳过
+				// 但是 level 太高导致 sId 为负数时，就是没处理完的遗留部分，必须添加到 0 号队列中继续处理
 				if (sId >= (int)nbStacks)
 					continue;
 				if (sId < 0)
@@ -601,6 +601,7 @@ struct rcRegion
 	rcIntArray floors; // 用于保存该区域垂直方向上的所有 reg id，用于判断两块区域是否能合并：垂直方向上有重叠的区域不能合并
 };
 
+// 去掉连续的重复 reg id
 static void removeAdjacentNeighbours(rcRegion& reg)
 {
 	// Remove adjacent duplicates.
@@ -619,6 +620,7 @@ static void removeAdjacentNeighbours(rcRegion& reg)
 	}
 }
 
+// 将旧 reg id 更新为新的 reg id
 static void replaceNeighbour(rcRegion& reg, unsigned short oldId, unsigned short newId)
 {
 	bool neiChanged = false;
@@ -641,7 +643,7 @@ static void replaceNeighbour(rcRegion& reg, unsigned short oldId, unsigned short
 
 // 判断两个 region 是否可以合并：
 // 1. area 必须相同
-// 2. 只有一段连续的边是相邻的，（n > 1）代表两个区域中间可能还夹着别的区域
+// 2. 只有一段连续的边是相邻的，（n > 1）代表两个区域中间可能还有一部分夹着别的区域
 // 3. 两块区域在垂直方向上不存在重叠
 static bool canMergeWithRegion(const rcRegion& rega, const rcRegion& regb)
 {
@@ -653,6 +655,7 @@ static bool canMergeWithRegion(const rcRegion& rega, const rcRegion& regb)
 		if (rega.connections[i] == regb.id)
 			n++;
 	}
+	// 这里不该也判断一下 n 是不是等于 0 吗？都不相邻的区域，怎么合并？
 	if (n > 1)
 		return false;
 	for (int i = 0; i < rega.floors.size(); ++i)
@@ -671,6 +674,9 @@ static void addUniqueFloorRegion(rcRegion& reg, int n)
 	reg.floors.push(n);
 }
 
+// 合并两个区域
+// 在各自的边上找到对方的 reg id，然后以此为突破口，将两个区域轮廓进行连接
+// 连接的时候保持顺时针的顺序
 static bool mergeRegions(rcRegion& rega, rcRegion& regb)
 {
 	unsigned short aid = rega.id;
@@ -711,9 +717,11 @@ static bool mergeRegions(rcRegion& rega, rcRegion& regb)
 	
 	// Merge neighbours.
 	rega.connections.clear();
+	// insa+1, insa+2, ..., ni-1, 0, 1, ..., insa-1
 	for (int i = 0, ni = acon.size(); i < ni-1; ++i)
 		rega.connections.push(acon[(insa+1+i) % ni]);
-		
+
+    // ..., insa-1, insb+1, insb+2, ..., ni-1, 0, 1, ..., insb-1
 	for (int i = 0, ni = bcon.size(); i < ni-1; ++i)
 		rega.connections.push(bcon[(insb+1+i) % ni]);
 	
@@ -728,6 +736,9 @@ static bool mergeRegions(rcRegion& rega, rcRegion& regb)
 	return true;
 }
 
+// 判断一个区域是否与边缘区域连接
+// 这里的边缘区域指的不是 tile border，而是 reg id 为 0 的区域
+// tile border 的 reg id 不为 0
 static bool isRegionConnectedToBorder(const rcRegion& reg)
 {
 	// Region is connected to border if
@@ -759,6 +770,7 @@ static bool isSolidEdge(rcCompactHeightfield& chf, const unsigned short* srcReg,
 	return true;
 }
 
+// 遍历 span[i] 所在区域的轮廓线，建立邻接 reg id 信息
 static void walkContour(int x, int y, int i, int dir,
 						rcCompactHeightfield& chf,
 						const unsigned short* srcReg,
@@ -849,7 +861,9 @@ static void walkContour(int x, int y, int i, int dir,
 	}
 }
 
-
+// 合并、筛选生成的区域
+// 太小的区域进行剔除
+// 不满足一定大小的区域尝试与邻接区域进行合并
 static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRegionSize,
 								  unsigned short& maxRegionId,
 								  rcCompactHeightfield& chf,
@@ -953,7 +967,6 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 		stack.push(i);
 
 		// bfs 搜索邻接区域
-		// 统计
 		while (stack.size())
 		{
 			// Pop
@@ -986,10 +999,11 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 		// Do not remove areas which connect to tile borders
 		// as their size cannot be estimated correctly and removing them
 		// can potentially remove necessary areas.
-		// 这里的 spanCount 不是单个区域的大小，而是在硬边界内、从区域 i 处可达的所有区域的累加大小
-		// 如果累加区域大小小于 minRegionArea，则将相关区域剔除掉，但是如果其中有邻接 tile 边界的，则必须保留
+		// 这里的 spanCount 不是单个区域的大小，而是指从区域 i 处可达的、未被访问过的、非边界区域的累加大小
+		// 如果累加区域大小小于 minRegionArea，则将相关区域都剔除掉，但是如果其中有邻接 tile 边界的，则必须保留
 		// 因为后续与其进行连接的邻接 tile 可能会需要这一块区域（本来就是一大块连续区域，只是被 tile 边界分割了开来）
-		// 贸然删除的话，可能导致生成不正确的网格
+		// 贸然删除的话，可能导致生成不正确的网格。
+		// 这里用累加面积，是因为只要邻接可达小区域加起来的面积大于最小值，那么就不用剔除，而是在后面进行合并。
 		if (spanCount < minRegionArea && !connectsToBorder)
 		{
 			// Kill all visited regions.
@@ -1002,6 +1016,8 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 	}
 	
 	// Merge too small regions to neighbour regions.
+	// 遍历所有的区域，对其中面积小于等于 mergeRegionSize 或者不连接边界的区域
+	// 将其合并到它面积最小的可合并邻接区域中
 	int mergeCount = 0 ;
 	do
 	{
@@ -1011,12 +1027,14 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 			rcRegion& reg = regions[i];
 			if (reg.id == 0 || (reg.id & RC_BORDER_REG))
 				continue;
-			if (reg.overlap) // 不合并垂直方向上有重叠的 region。什么情况下会在垂直方向上有 region 的重叠呢？
+			if (reg.overlap) // 不合并垂直方向上有重叠的 region。什么情况下会在垂直方向上有相同 region 的重叠呢？
 				continue;
 			if (reg.spanCount == 0)
 				continue;
 
 			// Check to see if the region should be merged.
+			// 面积满足要求、且与边缘处连接的区域，不用再合并到邻接区域
+			// 也就是说，非边界的大区域、边界的小区域，都需要合并到邻接区域中
 			if (reg.spanCount > mergeRegionSize && isRegionConnectedToBorder(reg))
 				continue;
 
@@ -1067,9 +1085,12 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 			}
 		}
 	}
+	// 合并操作一直进行，直到找不到可以合并的区域为止
 	while (mergeCount > 0);
 	
 	// Compress region Ids.
+	// 因为剔除和合并操作，导致有效 reg id 不再连续，中间出现了很多洞
+	// 这里要重排 reg id 的值，使之重新连续
 	for (int i = 0; i < nreg; ++i)
 	{
 		regions[i].remap = false;
@@ -1605,7 +1626,6 @@ bool rcBuildRegionsMonotone(rcContext* ctx, rcCompactHeightfield& chf,
 /// @warning The distance field must be created using #rcBuildDistanceField before attempting to build regions.
 /// 
 /// @see rcCompactHeightfield, rcCompactSpan, rcBuildDistanceField, rcBuildRegionsMonotone, rcConfig
-// TODO COMMENT
 bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 					const int borderSize, const int minRegionArea, const int mergeRegionArea)
 {
@@ -1678,7 +1698,7 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 	chf.borderSize = borderSize;
 
 	int sId = -1;
-	// 水平线 level 从 maxDistance 开始，每次处理两个单位的距离
+	// 水平线 level 从 maxDistance 开始，每次处理两个单位的距离，所以减 2
 	// 直到 level 降到 0，抵达距离场的边缘位置
 	while (level > 0)
 	{
@@ -1763,6 +1783,8 @@ bool rcBuildRegions(rcContext* ctx, rcCompactHeightfield& chf,
 			return false;
 
 		// If overlapping regions were found during merging, split those regions.
+		// 如果发现 region 内有重叠，需要将其拆分开
+		// 看这样子，作者还没没有编写相关的处理，只是打了个错误日志
 		if (overlaps.size() > 0)
 		{
 			ctx->log(RC_LOG_ERROR, "rcBuildRegions: %d overlapping regions.", overlaps.size());
