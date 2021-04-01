@@ -111,7 +111,7 @@ static int getCornerHeight(int x, int y, int i, int dir,
 		// 所以这里是：即便处于相同的 region，但是如果 area 不同，依旧算是边缘
 		// c 和 d 必须分属相同的 area，但是 region 可以不同。。。
 		const bool intsSameArea = (regs[c]>>16) == (regs[d]>>16);
-		// TODO 四个点均在合法 region 内
+		// 四个点均在合法 region 内
 		const bool noZeros = regs[a] != 0 && regs[b] != 0 && regs[c] != 0 && regs[d] != 0;
 		if (twoSameExts && twoInts && intsSameArea && noZeros)
 		{
@@ -161,7 +161,11 @@ static void walkContour(int x, int y, int i,
 			// CA|BD
 			int py = getCornerHeight(x, y, i, dir, chf, isBorderVertex);
 			int pz = y;
-			// 这里 px pz 是格子的 x y 坐标
+			// 这里对 px pz 坐标进行一定的调整，为什么要做这个调整呢？
+			// 前面的注释说 raw contour 严格 match 底下的区域轮廓
+			// 但是实际测试，并不是这样的
+			// 部分轮廓线和顶点可能会靠外一个位置，也就是说 points 中保存的一些顶点属于邻接 region，而非当前 region
+			// 为什么要这么调整呢？直接将所有邻接其它 region 的坐标视作轮廓顶点不好嘛，这样还能保证准确匹配？
 			switch(dir)
 			{
 				// 当 dir = 0 时，下方的格子一定是
@@ -190,11 +194,10 @@ static void walkContour(int x, int y, int i,
 			if (isAreaBorder)
 				r |= RC_AREA_BORDER; // 131072 - 0x2 0000
 
-			// points 里的点是逆时针的？
 			points.push(px);
 			points.push(py);
 			points.push(pz);
-			points.push(r);
+			points.push(r); // 不是 (px, pz) 的 region，而是检测方向上 (ax, ay) 的 region
 
 			flags[i] &= ~(1 << dir); // Remove visited edges
 			// 顺时针转向
@@ -257,13 +260,19 @@ static float distancePtSeg(const int x, const int z,
 	return dx*dx + dz*dz;
 }
 
+// 将 point 指定的轮廓进行简化处理
+// 主要是：
+// 1. 平滑处理，消除锯齿
+// 2. 将过长的线段拆分
+// points x y z r
+// simplified x y z i
 static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 							const float maxError, const int maxEdgeLen, const int buildFlags)
 {
 	// Add initial points.
-	// 这里遍历轮廓边缘格子，从 r 中取出低 16 位里的 region id
-	// 这里的 points[i+3]，低 16 位是 region_id，17、18 位是特殊标记位
-	// 找到第一个 region id 不为 0 的点
+	// 这里判断该轮廓是不是别的轮廓与其相邻
+	// 有的话，需要进行轮廓线的压缩处理
+	// 否则直接选取两个顶点供后续处理
 	bool hasConnections = false;
 	for (int i = 0; i < points.size(); i += 4)
 	{
@@ -273,23 +282,30 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 			break;
 		}
 	}
-	
+
 	if (hasConnections)
 	{
 		// The contour has some portals to other regions.
 		// Add a new point to every location where the region changes.
+        // 如果要简化的轮廓与别的 region 存在邻接关系，那么将轮廓线进行压缩处理，一段连续 reg、area不发生变化的顶点只保留一个
 		for (int i = 0, ni = points.size()/4; i < ni; ++i)
 		{
-			// ii 是轮廓连线上，当前点 i 的下一个点的序号
+		    // i-ii 是轮廓上的一段线段
 			int ii = (i+1) % ni;
-			// 判断当前点与下一个点是否属于同一个 region id
+
+			// 从前面 walkContour 的逻辑可以判断出，其得出的轮廓线上可能会包含多个 region 的 id
+			// 需要注意，points[i*4+3] 保存的并不是该点的 reg 信息
+			// 而是 walkContour 里，在遍历边界顶点时，某个方向上邻接的不连通 reg 的 id
+			// points 里的点，是在该顶点加上一定偏移的坐标，再加上不连通 reg 的 id 组成
+
+			// 这里判断轮廓上一个线段的起始和结束顶点是否属于同一个 region
 			const bool differentRegs = (points[i*4+3] & RC_CONTOUR_REG_MASK) != (points[ii*4+3] & RC_CONTOUR_REG_MASK);
-			// 两个点一个是 area border 一个不是，证明当前是边界
-			// ? 两个点都是边界的情况？
+			// 这里判断两个顶点是否都属于 area 边界
 			const bool areaBorders = (points[i*4+3] & RC_AREA_BORDER) != (points[ii*4+3] & RC_AREA_BORDER);
-			// 这里为了简化什么？
+
 			// 条件取反一下，即为当 !differentRegs && !areaBorders 时，丢弃点
-			// 所以如果两个点：属于同一个region && （都不是 border 点 || 都是 border 点）时，可以忽略掉当前点（可以视为和下一个点合并了）
+			// 所以如果两个点都属于同一个region，且不存在 area 的变化（都不是 border 点 || 都是 border 点）时
+			// 可以忽略掉当前点（可以视为和下一个点合并了）
 			if (differentRegs || areaBorders)
 			{
 				simplified.push(points[i*4+0]);
@@ -299,13 +315,15 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 			}
 		}
 	}
-	
+
 	if (simplified.size() == 0)
 	{
 		// If there is no connections at all,
 		// create some initial points for the simplification process.
 		// Find lower-left and upper-right vertices of the contour.
-		int llx = points[0];
+        // 这个轮廓不邻接别的 region，没办法进行压缩，不然就只剩一个点了
+        // 所以必须为其添加两个点，这里选取最左下、最右上的两个顶点
+        int llx = points[0];
 		int lly = points[1];
 		int llz = points[2];
 		int lli = 0;
@@ -343,9 +361,21 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 		simplified.push(urz);
 		simplified.push(uri);
 	}
-	
-	// Add points until all raw points are within
-	// error tolerance to the simplified shape.
+
+    // Add points until all raw points are within
+    // error tolerance to the simplified shape.
+    // 到这里，原本的完整轮廓线，只剩下了 region 变化、area 变化处的端点
+    //   1111
+    //  2    4
+    // 2      4
+    //  333333
+    // 简化后：
+    //   ---1
+    //  2    -
+    // -      4
+    //  3-----
+    // 这里再逐步检查，简化后的线段是否满足：两个点中间所有被简化掉的点与简化后的线段的距离相差在 maxError 内
+    // 如果相差大于 maxError，则需要将该点添加回来
 	const int pn = points.size()/4;
 	for (int i = 0; i < simplified.size()/4; )
 	{
@@ -434,6 +464,7 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 	}
 	
 	// Split too long edges.
+	// 将太长的线段拆分
 	if (maxEdgeLen > 0 && (buildFlags & (RC_CONTOUR_TESS_WALL_EDGES|RC_CONTOUR_TESS_AREA_EDGES)) != 0)
 	{
 		for (int i = 0; i < simplified.size()/4; )
@@ -455,14 +486,17 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 			// Tessellate only outer edges or edges between areas.
 			bool tess = false;
 			// Wall edges.
+			// 当有 RC_CONTOUR_TESS_WALL_EDGES 标记时，只处理 reg id 为 0 的边
 			if ((buildFlags & RC_CONTOUR_TESS_WALL_EDGES) && (points[ci*4+3] & RC_CONTOUR_REG_MASK) == 0)
 				tess = true;
 			// Edges between areas.
+            // 当有 RC_CONTOUR_TESS_AREA_EDGES 标记时，只处理两块 area 之间的边
 			if ((buildFlags & RC_CONTOUR_TESS_AREA_EDGES) && (points[ci*4+3] & RC_AREA_BORDER))
 				tess = true;
 			
 			if (tess)
 			{
+			    // 如果线段长度大于 maxEdgeLen
 				int dx = bx - ax;
 				int dz = bz - az;
 				if (dx*dx + dz*dz > maxEdgeLen*maxEdgeLen)
@@ -470,9 +504,12 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 					// Round based on the segments in lexilogical order so that the
 					// max tesselation is consistent regardles in which direction
 					// segments are traversed.
+					// n 是 points 中顶点的序号差值
 					const int n = bi < ai ? (bi+pn - ai) : (bi - ai);
 					if (n > 1)
 					{
+					    // 这里取 a 和 b 两个点的中位点序号 maxi
+					    // 也就是将线段平分为两段
 						if (bx > ax || (bx == ax && bz > az))
 							maxi = (ai + n/2) % pn;
 						else
@@ -512,8 +549,9 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 	{
 		// The edge vertex flag is take from the current raw point,
 		// and the neighbour region is take from the next raw point.
-		const int ai = (simplified[i*4+3]+1) % pn;
-		const int bi = simplified[i*4+3];
+		const int ai = (simplified[i*4+3]+1) % pn; // 简化后的点对应在原始数据 points 中的下一个点
+		const int bi = simplified[i*4+3]; // 简化后的点对应在原始数据 points 中的点
+        // ? 为什么这么操作？
 		simplified[i*4+3] = (points[ai*4+3] & (RC_CONTOUR_REG_MASK|RC_AREA_BORDER)) | (points[bi*4+3] & RC_BORDER_VERTEX);
 	}
 	
@@ -645,6 +683,8 @@ static bool	inCone(int i, int n, const int* verts, const int* pj)
 }
 
 
+// 将连续的、x z 坐标相同的顶点去重
+// ? 什么情况下会出现连续相同的 x z 坐标顶点？
 static void removeDegenerateSegments(rcIntArray& simplified)
 {
 	// Remove adjacent vertices which are equal on xz-plane,
@@ -653,7 +693,7 @@ static void removeDegenerateSegments(rcIntArray& simplified)
 	for (int i = 0; i < npts; ++i)
 	{
 		int ni = next(i, npts);
-		
+
 		if (vequal(&simplified[i*4], &simplified[ni*4]))
 		{
 			// Degenerate segment, remove.
@@ -920,13 +960,13 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	cset.height = chf.height - chf.borderSize*2;
 	cset.borderSize = chf.borderSize;
 	cset.maxError = maxError;
-	
+
 	int maxContours = rcMax((int)chf.maxRegions, 8);
 	cset.conts = (rcContour*)rcAlloc(sizeof(rcContour)*maxContours, RC_ALLOC_PERM);
 	if (!cset.conts)
 		return false;
 	cset.nconts = 0;
-	
+
 	rcScopedDelete<unsigned char> flags((unsigned char*)rcAlloc(sizeof(unsigned char)*chf.spanCount, RC_ALLOC_TEMP));
 	if (!flags)
 	{
@@ -1013,12 +1053,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 
 				// walkContour: 绕着 region 边缘遍历一圈，把边缘的格子点坐标都保存到 verts 数组中
 				// 数据格式为：x h y r
-				// 分别对应格子 x 轴坐标、span 的边缘高度、格子的 y 坐标、region 标记（分段保存了 id、是否边缘节点、是否区域边缘）
-				// ? RC_BORDER_VERTEX RC_AREA_BORDER RC_BORDER_REG 什么区别？
-				// 猜想：（好像是错的）
-				// RC_BORDER_VERTEX 是位于一条分界线上的点，另一边可能是 area 可能不是？
-				// RC_AREA_BORDER 是明确的两个 area 之间的界限
-				// RC_BORDER_REG 代表高度场里一个 span 属于 border，属于不可行走区域
+				// 分别对应格子 x 轴坐标、span 的边缘高度、格子的 y 坐标、region 标记（按位分段保存了 reg id、是否边缘节点、是否区域边缘）
 				walkContour(x, y, i, chf, flags, verts);
 
 				ctx->stopTimer(RC_TIMER_BUILD_CONTOURS_TRACE);
@@ -1029,6 +1064,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 				// 1.在 maxError 范围内对折线做平滑处理
 				// 2.对大于 maxEdgeLen 的线段做拆分处理
 				simplifyContour(verts, simplified, maxError, maxEdgeLen, buildFlags);
+
 				// 将相邻的 x z 坐标相等的点进行合并
 				removeDegenerateSegments(simplified);
 
