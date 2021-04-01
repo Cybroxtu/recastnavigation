@@ -23,6 +23,7 @@
 #include "RecastAlloc.h"
 #include "RecastAssert.h"
 
+// 判断两个 AABB 包围盒是否相交
 inline bool overlapBounds(const float* amin, const float* amax, const float* bmin, const float* bmax)
 {
 	bool overlap = true;
@@ -32,6 +33,7 @@ inline bool overlapBounds(const float* amin, const float* amax, const float* bmi
 	return overlap;
 }
 
+// 判断一维坐标轴上两条线段是否相交
 inline bool overlapInterval(unsigned short amin, unsigned short amax,
 							unsigned short bmin, unsigned short bmax)
 {
