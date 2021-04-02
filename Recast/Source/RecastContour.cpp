@@ -517,7 +517,7 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 					}
 				}
 			}
-			
+
 			// If the max deviation is larger than accepted error,
 			// add new point, else continue to next segment.
 			if (maxi != -1)
@@ -544,7 +544,8 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 			}
 		}
 	}
-	
+
+	// 这里是为简化后的点恢复 reg 及其标记信息
 	for (int i = 0; i < simplified.size()/4; ++i)
 	{
 		// The edge vertex flag is take from the current raw point,
@@ -557,6 +558,12 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 	
 }
 
+// 任意多边形面积计算公式
+// j = i + 1
+// i = [0,n]
+// S = 1/2 * |Sigma (xi * yj - xj * yi)|
+// ? 当不使用绝对值时，顶点顺时针排列会会得到正值
+// ? 顶点逆时针排列会得到负值
 static int calcAreaOfPolygon2D(const int* verts, const int nverts)
 {
 	int area = 0;
@@ -1095,7 +1102,8 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 					}
 					
 					rcContour* cont = &cset.conts[cset.nconts++];
-					
+
+					// 将计算出的轮廓线上的顶点复制到目标结构中
 					cont->nverts = simplified.size()/4;
 					cont->verts = (int*)rcAlloc(sizeof(int)*cont->nverts*4, RC_ALLOC_PERM);
 					if (!cont->verts)
@@ -1126,6 +1134,7 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 					if (borderSize > 0)
 					{
 						// If the heightfield was build with bordersize, remove the offset.
+						// ? 为什么这里要减去偏移？因为 cset 的 bmin bmax 已经添加了 borderSize 偏移吗
 						for (int j = 0; j < cont->nrverts; ++j)
 						{
 							int* v = &cont->rverts[j*4];
@@ -1142,15 +1151,21 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	}
 	
 	// Merge holes if needed.
+	// TODO 孔洞的处理
 	if (cset.nconts > 0)
 	{
 		// Calculate winding of all polygons.
+		// winding，多边形的缠绕？
 		rcScopedDelete<signed char> winding((signed char*)rcAlloc(sizeof(signed char)*cset.nconts, RC_ALLOC_TEMP));
 		if (!winding)
 		{
 			ctx->log(RC_LOG_ERROR, "rcBuildContours: Out of memory 'hole' (%d).", cset.nconts);
 			return false;
 		}
+
+		// 计算所有轮廓包围成的多边形的面积
+		// 如果面积小于 0，则代表这个轮廓有洞
+		// ? 为什么，就算多边形内部有洞，轮廓也检测不到啊
 		int nholes = 0;
 		for (int i = 0; i < cset.nconts; ++i)
 		{
