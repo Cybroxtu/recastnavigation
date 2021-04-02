@@ -338,11 +338,18 @@ void rcMarkWalkableTriangles(rcContext* ctx, const float walkableSlopeAngle,
 {
 	rcIgnoreUnused(ctx);
 	rcIgnoreUnused(nv);
-	
+
+    // 对于一个三角形平面，其与 x-z 平面的夹角为 θ
+    // 其法线向量与其该平面垂直，其与 x-z 平面的夹角为 α = π/2 - θ
+    // 单位法线向量的 y 轴坐标可求得：sin(α)=y
+    // 而 sin(α) = sin(π/2 - θ) = cos(θ)
+    // 如果坡度刚好与 walkableSlopeAngle 相等，则单位法线向量的 y 轴应该正好等于 cos(walkableSlopeAngle)
+    // 当 θ 比 walkableSlopeAngle 小时，y 值比 cos(walkableSlopeAngle) 更大，此时三角形面可以行走
+    // 因为三角形的顶点是有顺序的，所以一个给定的三角形面可以确定其是正面朝上还是朝下
+    // 对于面朝下的那些三角形，计算得出的法线向量 y 轴会小于 0，此时其三角形表面也是不可行走的
 	const float walkableThr = cosf(walkableSlopeAngle/180.0f*RC_PI);
 
 	float norm[3];
-	
 	for (int i = 0; i < nt; ++i)
 	{
 		const int* tri = &tris[i*3];

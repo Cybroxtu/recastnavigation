@@ -84,11 +84,11 @@ static void freeSpan(rcHeightfield& hf, rcSpan* ptr)
 	hf.freelist = ptr;
 }
 
+// 将新的 solid span 添加到高度场内
 static bool addSpan(rcHeightfield& hf, const int x, const int y,
 					const unsigned short smin, const unsigned short smax,
 					const unsigned char area, const int flagMergeThr)
 {
-	
 	int idx = x + y*hf.width;
 	
 	rcSpan* s = allocSpan(hf);
@@ -109,6 +109,10 @@ static bool addSpan(rcHeightfield& hf, const int x, const int y,
 	rcSpan* cur = hf.spans[idx];
 	
 	// Insert and merge spans.
+	// 将新添加的 span 根据其高度插入到链表中
+    // 需要注意的事，如果新添加的 span 与老的 span 存在重叠，将老的 span 合并到新 span 里
+    // 1. 如果两个 span 的顶部高度差在合并范围 flagMergeThr 以内，则使用两个 span 中 area 较大的值（其实就是 RC_WALKABLE_AREA 了）
+    // 2. 如果两个 span 的顶部高度差在合并范围 flagMergeThr 以外，则使用新增 span 的 area 值
 	while (cur)
 	{
 		if (cur->smin > s->smax)
@@ -183,52 +187,83 @@ bool rcAddSpan(rcContext* ctx, rcHeightfield& hf, const int x, const int y,
 }
 
 // divides a convex polygons into two convex polygons on both sides of a line
+// 将一个凸多边形沿着一条轴线切割成两个凸多边形
+// 参数：
+// in - 输入凸多边形的顶点数组
+// nin - 输入凸多边形的顶点数量
+// out1 - 输出凸多边形 1 的顶点数组
+// nout1 - 输出凸多边形 1 的顶点数量
+// out2 - 输出凸多边形 2 的顶点数组
+// nout2 - 输出凸多边形 2 的顶点数量
+// x - 要进行切割的轴坐标
+// axis - 代表要在哪个坐标轴上进行切割，顶点坐标数组的偏移量，0-x 1-y 2-z
 static void dividePoly(const float* in, int nin,
 					  float* out1, int* nout1,
 					  float* out2, int* nout2,
 					  float x, int axis)
 {
+    // 计算出多边形各顶点坐标在 axis 轴上与 x 的差值
+    // 用于判断两个点在 axis 轴上是否相等，是的话，说明这两个点一定在切割后的同一边
 	float d[12];
 	for (int i = 0; i < nin; ++i)
 		d[i] = x - in[i*3+axis];
 
+	// m - 切割出的多边形的顶点数量
+    // n - 剩下的多边形的顶点数量
 	int m = 0, n = 0;
-	for (int i = 0, j = nin-1; i < nin; j=i, ++i)
+
+    // 遍历多边形的每一条边 j-i
+    // 每次遍历一条边时，除了新添加的割点外，只处理 j-i 的结束点 i
+    for (int i = 0, j = nin-1; i < nin; j=i, ++i)
 	{
 		bool ina = d[j] >= 0;
 		bool inb = d[i] >= 0;
+        // 这里判断两个点是否在切割轴线 x 的同一边
 		if (ina != inb)
 		{
+            // 两个顶点在切割线的不同边，代表可以切割
+            // 求出 j-i 与切割线的交点，这个交点被切割后的两个多边形所共享
 			float s = d[j] / (d[j] - d[i]);
 			out1[m*3+0] = in[j*3+0] + (in[i*3+0] - in[j*3+0])*s;
 			out1[m*3+1] = in[j*3+1] + (in[i*3+1] - in[j*3+1])*s;
 			out1[m*3+2] = in[j*3+2] + (in[i*3+2] - in[j*3+2])*s;
-			rcVcopy(out2 + n*3, out1 + m*3);
+			rcVcopy(out2 + n*3, out1 + m*3); // 这个
 			m++;
 			n++;
+
 			// add the i'th point to the right polygon. Do NOT add points that are on the dividing line
 			// since these were already added above
 			if (d[i] > 0)
 			{
+                // 点 i 在分割线左边
 				rcVcopy(out1 + m*3, in + i*3);
 				m++;
 			}
 			else if (d[i] < 0)
 			{
+                // 点 i 在分割线右边
 				rcVcopy(out2 + n*3, in + i*3);
 				n++;
 			}
 		}
 		else // same side
 		{
+		    // 两个顶点在切割线的同一边，包括在分割线上
+
 			// add the i'th point to the right polygon. Addition is done even for points on the dividing line
 			if (d[i] >= 0)
 			{
+                // 1. 点 i 在分割线左边，此时它只属于第一个多边形，然后可以进行下一条边的遍历
+                // 2. 点 i 在分割线上，此时它同时属于两个多边形
 				rcVcopy(out1 + m*3, in + i*3);
 				m++;
-				if (d[i] != 0)
+				if (d[i] != 0) // 两个顶点都在分割线上
 					continue;
 			}
+
+			// 1. 两个点都在分割线右边
+			// 此时第一个多边形没有可添加的点，第二个多边形将每条边 j-i 的结束点添加到多边形内
+			// 2. 两个点都在分割线上，此将边 j-i 的结束点添加到第二个多边形内
 			rcVcopy(out2 + n*3, in + i*3);
 			n++;
 		}
@@ -252,7 +287,7 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	const float by = bmax[1] - bmin[1];
 	
 	// Calculate the bounding box of the triangle.
-	// 计算出三角形的包围盒
+	// 计算出三角形的 AABB 包围盒
 	rcVcopy(tmin, v0);
 	rcVcopy(tmax, v0);
 	rcVmin(tmin, v1);
@@ -262,11 +297,14 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	
 	// If the triangle does not touch the bbox of the heightfield, skip the triagle.
 	// 判断三角形的包围盒是否与高度场的包围盒相交
-	// 如果不相交，则这个三角形可以直接略过，用于构建 tile
+	// 如果不相交，则表示这个三角形不在当前构建导航网格的空间内，可以直接跳过
 	if (!overlapBounds(bmin, bmax, tmin, tmax))
 		return true;
 	
 	// Calculate the footprint of the triangle on the grid's y-axis
+	// ics 是 cellSize 的倒数，用于将原始坐标转换为高度场的格子坐标
+	// 这里 y0 y1 分别是三角形包围盒与高度场的包围盒最小点在 z 轴坐标上的差值转换到格子坐标后的值
+	// 方便后面计算
 	int y0 = (int)((tmin[2] - bmin[2])*ics);
 	int y1 = (int)((tmax[2] - bmin[2])*ics);
 	y0 = rcClamp(y0, 0, h-1);
@@ -276,19 +314,28 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	float buf[7*3*4];
 	float *in = buf, *inrow = buf+7*3, *p1 = inrow+7*3, *p2 = p1+7*3;
 
+	// 准备初始的三个顶点数据
 	rcVcopy(&in[0], v0);
 	rcVcopy(&in[1*3], v1);
 	rcVcopy(&in[2*3], v2);
 	int nvrow, nvIn = 3;
-	
+
+	// 遍历三角形包围盒内的格子，在 z 轴上进行切割
 	for (int y = y0; y <= y1; ++y)
 	{
 		// Clip polygon to row. Store the remaining polygon as well
-		const float cz = bmin[2] + y*cs;
+		const float cz = bmin[2] + y*cs; // 三角形包围盒的起始 z 轴值 + 当前格子偏移值
+
+		// 对 in/nvIn 代表的三角形进行切割
+		// cz+cs 代表每次切割下一个体素大小的区域
+		// axis = 2 代表在 z 轴上进行切割
+		// 切割出来要进行光栅化的多边形为 inrow/nvrow
+        // 待继续切割的多边形为 p1/nvIn
+        // 所以这里将 in 与 p1 进行交换
 		dividePoly(in, nvIn, inrow, &nvrow, p1, &nvIn, cz+cs, 2);
 		rcSwap(in, p1);
-		if (nvrow < 3) continue;
-		
+		if (nvrow < 3) continue; // 没有割到东西
+
 		// find the horizontal bounds in the row
 		float minX = inrow[0], maxX = inrow[0];
 		for (int i=1; i<nvrow; ++i)
@@ -296,6 +343,8 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 			if (minX > inrow[i*3])	minX = inrow[i*3];
 			if (maxX < inrow[i*3])	maxX = inrow[i*3];
 		}
+
+		// 计算出切割出的待光栅化多边形里，其包围盒与高度场包围盒在 x 轴上的差值
 		int x0 = (int)((minX - bmin[0])*ics);
 		int x1 = (int)((maxX - bmin[0])*ics);
 		x0 = rcClamp(x0, 0, w-1);
@@ -303,6 +352,7 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 
 		int nv, nv2 = nvrow;
 
+        // 遍历切割出的多边形，在 x 轴上对其再次进行切割
 		for (int x = x0; x <= x1; ++x)
 		{
 			// Clip polygon to column. store the remaining polygon as well
@@ -330,7 +380,8 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 			// Snap the span to the heightfield height grid.
 			unsigned short ismin = (unsigned short)rcClamp((int)floorf(smin * ich), 0, RC_SPAN_MAX_HEIGHT);
 			unsigned short ismax = (unsigned short)rcClamp((int)ceilf(smax * ich), (int)ismin+1, RC_SPAN_MAX_HEIGHT);
-			
+
+			// 到这里，代表三角形面与对应格子相交，应该将相关格子的数据添加到高度场中
 			if (!addSpan(hf, x, y, ismin, ismax, area, flagMergeThr))
 				return false;
 		}
