@@ -95,22 +95,26 @@ void rcFilterLedgeSpans(rcContext* ctx, const int walkableHeight, const int walk
 	{
 		for (int x = 0; x < w; ++x)
 		{
+		    // 遍历所有的 solid span
 			for (rcSpan* s = solid.spans[x + y*w]; s; s = s->next)
 			{
 				// Skip non walkable spans.
 				if (s->area == RC_NULL_AREA)
 					continue;
-				
+
+				// 这里是 open span 的底部、顶部高度
 				const int bot = (int)(s->smax);
 				const int top = s->next ? (int)(s->next->smin) : MAX_HEIGHT;
 				
 				// Find neighbours minimum height.
+				// 邻接 open span 的底部高度 - 当前 open span 的底部高度
 				int minh = MAX_HEIGHT;
 
 				// Min and max height of accessible neighbours.
 				int asmin = s->smax;
 				int asmax = s->smax;
 
+				// 遍历邻接四方向
 				for (int dir = 0; dir < 4; ++dir)
 				{
 					int dx = x + rcGetDirOffsetX(dir);
@@ -124,9 +128,11 @@ void rcFilterLedgeSpans(rcContext* ctx, const int walkableHeight, const int walk
 
 					// From minus infinity to the first span.
 					rcSpan* ns = solid.spans[dx + dy*w];
-					int nbot = -walkableClimb;
+                    // 邻接 open span 的底部、顶部高度，第一个 open span 的高度从 负无穷大到第一个 solid span 的底部高度
+					int nbot = -walkableClimb; // 说是负无穷大，其实小于 -walkableClimb 的值没有意义，直接使用 -walkableClimb 了
 					int ntop = ns ? (int)ns->smin : MAX_HEIGHT;
 					// Skip neightbour if the gap between the spans is too small.
+					// 判断两个 open span 在 y 轴上相交的部分高度，如果小于 walkableHeight，说明这两个 open span 间不能通过
 					if (rcMin(top,ntop) - rcMax(bot,nbot) > walkableHeight)
 						minh = rcMin(minh, nbot - bot);
 					
@@ -143,6 +149,8 @@ void rcFilterLedgeSpans(rcContext* ctx, const int walkableHeight, const int walk
 							// Find min/max accessible neighbour height. 
 							if (rcAbs(nbot - bot) <= walkableClimb)
 							{
+							    // 如果邻接 open span 在当前 open span 的高度差 walkableClimb 以内
+							    // 则更新可访问的邻接 span 最小、最大坐标值
 								if (nbot < asmin) asmin = nbot;
 								if (nbot > asmax) asmax = nbot;
 							}
@@ -155,12 +163,20 @@ void rcFilterLedgeSpans(rcContext* ctx, const int walkableHeight, const int walk
 				// neighbour span is less than the walkableClimb.
 				if (minh < -walkableClimb)
 				{
+                    // 因为是邻接高度减去当前高度，所以这个判断代表邻接 span 比当前 span 要低
+                    // 此时将当前 span 标记为不可行走，也就是说一高一低两个 span，按定义两个都是 ledge
+                    // 但是只将较高的 span 标记为不可行走
+                    // 这里主要是为了把悬崖边缘给标记为不可行走区域
 					s->area = RC_NULL_AREA;
 				}
 				// If the difference between all neighbours is too large,
 				// we are at steep slope, mark the span as ledge.
 				else if ((asmax - asmin) > walkableClimb)
 				{
+				    // 如果可达的邻接的最大、最小高度的插值大于了 walkableClimb
+				    // 则代表当前是在一个陡坡的中间，应该将当前 span 标记为不可行走
+				    // 这里是为了解决之前 rcFilterLowHangingWalkableObstacles 带来的问题
+				    // 如果一整个陡坡被连带着标记为了可以行走，这里需要进行纠正
 					s->area = RC_NULL_AREA;
 				}
 			}
