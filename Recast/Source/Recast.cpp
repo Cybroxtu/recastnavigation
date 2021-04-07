@@ -532,10 +532,10 @@ bool rcBuildCompactHeightfield(rcContext* ctx, const int walkableHeight, const i
 
 						// Check that the gap between the spans is walkable,
 						// and that the climb height between the gaps is not too high.
-						// 如果邻接 span 的高度大于等于 walkableHeight，且两个 span y 轴重合部分的高度差小于等于 walkableClimb
+						// 如果当前 span 与邻接 span 在 y 轴上重合的部分的高度差大于 walkableHeight
+						// 且两个 span 的底部表面高度差在 walkableClimb 内
 						// 即可认为从当前 span 可达该邻接 span，设置该方向上的邻接关系
 						// 注意这里只保存该邻接方向上，第一个连通的 span 信息
-						// 而该方向上，应该也是有可能存在多个连通的邻接 span 
 						if ((top - bot) >= walkableHeight && rcAbs((int)ns.y - (int)s.y) <= walkableClimb)
 						{
 							// Mark direction as walkable.

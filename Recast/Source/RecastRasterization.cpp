@@ -110,7 +110,7 @@ static bool addSpan(rcHeightfield& hf, const int x, const int y,
 	
 	// Insert and merge spans.
 	// 将新添加的 span 根据其高度插入到链表中
-    // 需要注意的事，如果新添加的 span 与老的 span 存在重叠，将老的 span 合并到新 span 里
+    // 需要注意的是，如果新添加的 span 与老的 span 存在重叠，将老的 span 合并到新 span 里
     // 1. 如果两个 span 的顶部高度差在合并范围 flagMergeThr 以内，则使用两个 span 中 area 较大的值（其实就是 RC_WALKABLE_AREA 了）
     // 2. 如果两个 span 的顶部高度差在合并范围 flagMergeThr 以外，则使用新增 span 的 area 值
 	while (cur)
@@ -203,7 +203,7 @@ static void dividePoly(const float* in, int nin,
 					  float x, int axis)
 {
     // 计算出多边形各顶点坐标在 axis 轴上与 x 的差值
-    // 用于判断两个点在 axis 轴上是否相等，是的话，说明这两个点一定在切割后的同一边
+    // 根据两个点的差值的正负号是否相同，即可确定这两个点是否在切割后的同一边
 	float d[12];
 	for (int i = 0; i < nin; ++i)
 		d[i] = x - in[i*3+axis];
@@ -273,8 +273,13 @@ static void dividePoly(const float* in, int nin,
 	*nout2 = n;
 }
 
-
-
+// v0, v1, v2: 三角形的三个顶点
+// area: 可行走标记
+// hf: 高度场
+// bmin, bmax: 高度场包围盒
+// cs: cell size，用于确定多边形切割时的原始坐标步长
+// ics, ich: cs ch 的倒数
+// flagMergeThr: 确定 y 轴上两个连续 span 是否能合并的高度
 static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 						 const unsigned char area, rcHeightfield& hf,
 						 const float* bmin, const float* bmax,
@@ -300,11 +305,10 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	// 如果不相交，则表示这个三角形不在当前构建导航网格的空间内，可以直接跳过
 	if (!overlapBounds(bmin, bmax, tmin, tmax))
 		return true;
-	
-	// Calculate the footprint of the triangle on the grid's y-axis
-	// ics 是 cellSize 的倒数，用于将原始坐标转换为高度场的格子坐标
-	// 这里 y0 y1 分别是三角形包围盒与高度场的包围盒最小点在 z 轴坐标上的差值转换到格子坐标后的值
-	// 方便后面计算
+
+	// Calculate the footprint of the triangle on the grid's y-axi
+	// 求出三角形包围盒在 z 轴坐标上的最小和最大偏移值，乘以 ics 将其由原始坐标转换为格子坐标系 y 轴坐标
+	// 最后 tcClamp 将其限定在高度场坐标范围内
 	int y0 = (int)((tmin[2] - bmin[2])*ics);
 	int y1 = (int)((tmax[2] - bmin[2])*ics);
 	y0 = rcClamp(y0, 0, h-1);
@@ -312,19 +316,26 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	
 	// Clip the triangle into all grid cells it touches.
 	float buf[7*3*4];
+	// in: 第一次切割时，要切割的多边形的顶点数组
+	// inrow: 第一次切割时的割出的多边形顶点数组，第二次切割时的输入多边形
+	// p1: 第一次切割时，剩下的多边形顶点数组
+	// p2: 第二次切割时，剩下的多边形顶点数组
 	float *in = buf, *inrow = buf+7*3, *p1 = inrow+7*3, *p2 = p1+7*3;
 
-	// 准备初始的三个顶点数据
+	// 用于第一次切割的三角形顶点
 	rcVcopy(&in[0], v0);
 	rcVcopy(&in[1*3], v1);
 	rcVcopy(&in[2*3], v2);
+
+    // nvIn: 第一次切割时，要切割的多边形的顶点数量
+    // nvrow: 第一次切割时，割出的多边形顶点数量
 	int nvrow, nvIn = 3;
 
-	// 遍历三角形包围盒内的格子，在 z 轴上进行切割
+	// 遍历三角形包围盒内的格子，先在 y 轴上进行第一次切割
 	for (int y = y0; y <= y1; ++y)
 	{
 		// Clip polygon to row. Store the remaining polygon as well
-		const float cz = bmin[2] + y*cs; // 三角形包围盒的起始 z 轴值 + 当前格子偏移值
+		const float cz = bmin[2] + y*cs; // 三角形包围盒的起始 z 轴值 + 当前格子坐标偏移值
 
 		// 对 in/nvIn 代表的三角形进行切割
 		// cz+cs 代表每次切割下一个体素大小的区域
@@ -362,6 +373,8 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 			if (nv < 3) continue;
 			
 			// Calculate min and max of the span.
+			// 计算出切割出的多边形在原始坐标里 y 轴上的最小和最大高度
+			// 判断是否有超出高度场包围盒高度，并将其由原始坐标系转换到格子坐标系
 			float smin = p1[1], smax = p1[1];
 			for (int i = 1; i < nv; ++i)
 			{
