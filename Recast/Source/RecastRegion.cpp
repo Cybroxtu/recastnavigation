@@ -655,7 +655,7 @@ static bool canMergeWithRegion(const rcRegion& rega, const rcRegion& regb)
 		if (rega.connections[i] == regb.id)
 			n++;
 	}
-	// 这里不该也判断一下 n 是不是等于 0 吗？都不相邻的区域，怎么合并？
+	// 不需要判断等于 0，因为调用这个函数的都是从 connections 里取的，n == 0 压根就不会在 connections 中
 	if (n > 1)
 		return false;
 	for (int i = 0; i < rega.floors.size(); ++i)
@@ -901,7 +901,7 @@ static bool mergeAndFilterRegions(rcContext* ctx, int minRegionArea, int mergeRe
 
 				// Update floors.
 				// 遍历垂直方向上所有其它 span，检查是否存在重叠的 reg id
-				// 并使用 reg.floors 记录遇到的所有 reg id【这一步干嘛的？】
+				// 并使用 reg.floors 记录遇到的所有 reg id
 				for (int j = (int)c.index; j < ni; ++j)
 				{
 					if (i == j) continue;

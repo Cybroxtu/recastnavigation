@@ -562,8 +562,8 @@ static void simplifyContour(rcIntArray& points, rcIntArray& simplified,
 // j = i + 1
 // i = [0,n]
 // S = 1/2 * |Sigma (xi * yj - xj * yi)|
-// ? 当不使用绝对值时，顶点顺时针排列会会得到正值
-// ? 顶点逆时针排列会得到负值
+// 顶点逆时针排列会得到正值
+// 顶点顺时针排列会得到负值
 static int calcAreaOfPolygon2D(const int* verts, const int nverts)
 {
 	int area = 0;
@@ -837,9 +837,11 @@ static int compareDiagDist(const void* va, const void* vb)
 static void mergeRegionHoles(rcContext* ctx, rcContourRegion& region)
 {
 	// Sort holes from left to right.
+	// 找出所有 hole 轮廓里，x 坐标最小的顶点
 	for (int i = 0; i < region.nholes; i++)
 		findLeftMostVertex(region.holes[i].contour, &region.holes[i].minx, &region.holes[i].minz, &region.holes[i].leftmost);
-	
+
+    // 将 hole 轮廓按照 x 轴由小到大（x 轴相等则按 z 轴由小到大）进行排列
 	qsort(region.holes, region.nholes, sizeof(rcContourHole), compareHoles);
 	
 	int maxVerts = region.outline->nverts;
@@ -1155,7 +1157,6 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 	if (cset.nconts > 0)
 	{
 		// Calculate winding of all polygons.
-		// winding，多边形的缠绕？
 		rcScopedDelete<signed char> winding((signed char*)rcAlloc(sizeof(signed char)*cset.nconts, RC_ALLOC_TEMP));
 		if (!winding)
 		{
@@ -1165,7 +1166,6 @@ bool rcBuildContours(rcContext* ctx, rcCompactHeightfield& chf,
 
 		// 计算所有轮廓包围成的多边形的面积
 		// 如果面积小于 0，则代表这个轮廓有洞
-		// ? 为什么，就算多边形内部有洞，轮廓也检测不到啊
 		int nholes = 0;
 		for (int i = 0; i < cset.nconts; ++i)
 		{
