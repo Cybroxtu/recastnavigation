@@ -35,12 +35,19 @@ static const int DT_NODE_PARENT_BITS = 24;
 static const int DT_NODE_STATE_BITS = 2;
 struct dtNode
 {
+    // 当前坐标点
 	float pos[3];								///< Position of the node.
+	// 前一个点到当前点的花费
 	float cost;									///< Cost from previous node to current node.
+	// 总花费 = cost + heuristic
 	float total;								///< Cost up to the node.
+	// 前一个点在 node pool 中的序号
 	unsigned int pidx : DT_NODE_PARENT_BITS;	///< Index to parent node.
+	// 状态。pool 中可能会有多个不同状态的相同节点同时存在
 	unsigned int state : DT_NODE_STATE_BITS;	///< extra state information. A polyRef can have multiple nodes with different extra info. see DT_MAX_STATES_PER_NODE
+    // A* 搜索状态标记
 	unsigned int flags : 3;						///< Node flags. A combination of dtNodeFlags.
+	// 对应的多边形 ref
 	dtPolyRef id;								///< Polygon ref the node corresponds to.
 };
 

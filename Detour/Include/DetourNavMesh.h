@@ -155,24 +155,31 @@ enum dtPolyTypes
 struct dtPoly
 {
 	/// Index to first link in linked list. (Or #DT_NULL_LINK if there is no link.)
-	unsigned int firstLink;
+    // 多边形的邻接信息链表头地址，在 dtNavMesh::links 中的序号
+    unsigned int firstLink;
 
 	/// The indices of the polygon's vertices.
 	/// The actual vertices are located in dtMeshTile::verts.
+	// 多边形的顶点在 dtMeshTile::verts 中的序号
 	unsigned short verts[DT_VERTS_PER_POLYGON];
 
 	/// Packed data representing neighbor polygons references and flags for each edge.
-	unsigned short neis[DT_VERTS_PER_POLYGON];
+    // 该多边形每条边的邻接多边形连接关系，EXT/NULL | side
+    // 这里的序号从 1 开始，0 代表没有连接
+    // 所以使用的时候需要 -1
+    unsigned short neis[DT_VERTS_PER_POLYGON];
 
 	/// The user defined polygon flags.
 	unsigned short flags;
 
 	/// The number of vertices in the polygon.
-	unsigned char vertCount;
+    // 该多边形的顶点数量
+    unsigned char vertCount;
 
 	/// The bit packed area id and polygon type.
 	/// @note Use the structure's set and get methods to acess this value.
-	unsigned char areaAndtype;
+    // 这个多边形所属的区域id与多边形类型
+    unsigned char areaAndtype;
 
 	/// Sets the user defined area id. [Limit: < #DT_MAX_AREAS]
 	inline void setArea(unsigned char a) { areaAndtype = (areaAndtype & 0xc0) | (a & 0x3f); }
@@ -199,6 +206,7 @@ struct dtPolyDetail
 /// Defines a link between polygons.
 /// @note This structure is rarely if ever used by the end user.
 /// @see dtMeshTile
+// 用于表示两个多边形的连通信息
 struct dtLink
 {
 	dtPolyRef ref;					///< Neighbour reference. (The neighbor that is linked to.)
