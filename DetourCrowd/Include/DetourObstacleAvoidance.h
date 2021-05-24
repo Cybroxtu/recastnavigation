@@ -82,12 +82,12 @@ static const int DT_MAX_PATTERN_RINGS = 4;	///< Max number of adaptive rings.
 
 struct dtObstacleAvoidanceParams
 {
-	float velBias;
-	float weightDesVel;
-	float weightCurVel;
-	float weightSide;
-	float weightToi;
-	float horizTime;
+	float velBias;          // ?
+	float weightDesVel;     // ?
+	float weightCurVel;     // ?
+	float weightSide;       // ?
+	float weightToi;        // ?
+	float horizTime;        // ?
 	unsigned char gridSize;	///< grid
 	unsigned char adaptiveDivs;	///< adaptive
 	unsigned char adaptiveRings;	///< adaptive

@@ -75,6 +75,7 @@ static float getSlabCoord(const float* va, const int side)
 
 static void calcSlabEndPoints(const float* va, const float* vb, float* bmin, float* bmax, const int side)
 {
+    // 在 z-y 轴上投影的包围盒
 	if (side == 0 || side == 4)
 	{
 		if (va[2] < vb[2])
@@ -92,6 +93,7 @@ static void calcSlabEndPoints(const float* va, const float* vb, float* bmin, flo
 			bmax[1] = va[1];
 		}
 	}
+    // 在 x-y 轴上投影的包围盒
 	else if (side == 2 || side == 6)
 	{
 		if (va[0] < vb[0])
@@ -297,14 +299,21 @@ const dtNavMeshParams* dtNavMesh::getParams() const
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
+// 这个函数是用来查找与 tile 边界上的线段相连接的多边形的
+// 因为 tile 边界上用来外部连接的边（DT_EXT_LINK） 在 side 对应轴上的坐标必定相等
+// 只是在 y 轴高度上会存在差异
+// 所以这个函数用于判断边界上的线段 va-vb 与多边形 side 朝向的外部连接边在二维包围盒上是否相交
 int dtNavMesh::findConnectingPolys(const float* va, const float* vb,
 								   const dtMeshTile* tile, int side,
 								   dtPolyRef* con, float* conarea, int maxcon) const
 {
 	if (!tile) return 0;
-	
+
+	// slab 其实就是二维的包围盒
+	// 获取 va-vb 在 side 方向之外的另外两个轴上投影的包围盒
 	float amin[2], amax[2];
 	calcSlabEndPoints(va, vb, amin, amax, side);
+	// 获取 va-vb 起始点在 side 方向的轴上的坐标
 	const float apos = getSlabCoord(va, side);
 
 	// Remove links pointing to 'side' and compact the links array. 
@@ -322,23 +331,30 @@ int dtNavMesh::findConnectingPolys(const float* va, const float* vb,
 		{
 			// Skip edges which do not point to the right side.
 			if (poly->neis[j] != m) continue;
-			
+
 			const float* vc = &tile->verts[poly->verts[j]*3];
 			const float* vd = &tile->verts[poly->verts[(j+1) % nv]*3];
 			const float bpos = getSlabCoord(vc, side);
 			
 			// Segments are not close enough.
+			// 因为要再 side 方向的轴上进行判断
+			// 而 apos bpos 是 va-vb vc-vd 的起始点在 side 方向的轴上的坐标
+			// src tile 中的 va-vb 与 dst tile 中的 vc-vd 在顺序上应该是相反的
+			// 但是这里顺序无关，va-vb vc-vd 必须要重合，所以在 side 方向的轴上坐标应该相等
+			// 所以判断这两个浮点值不大于一个较小值即可判断
 			if (dtAbs(apos-bpos) > 0.01f)
 				continue;
 			
 			// Check if the segments touch.
 			calcSlabEndPoints(vc,vd, bmin,bmax, side);
-			
+
+			// 判断两个包围盒是否相交
 			if (!overlapSlabs(amin,amax, bmin,bmax, 0.01f, tile->header->walkableClimb)) continue;
 			
 			// Add return value.
 			if (n < maxcon)
 			{
+			    // conarea 就是相交部分的二维包围盒
 				conarea[n*2+0] = dtMax(amin[0], bmin[0]);
 				conarea[n*2+1] = dtMin(amax[0], bmax[0]);
 				con[n] = base | (dtPolyRef)i;
@@ -429,15 +445,21 @@ void dtNavMesh::connectExtLinks(dtMeshTile* tile, dtMeshTile* target, int side)
 					// Compress portal limits to a byte value.
 					if (dir == 0 || dir == 4)
 					{
+                        // x 轴方向，计算 z 轴比例
+                        // neia 是 va-vb 与邻接多边形相连的边在 z-y 轴上投影的二维包围盒的 min、max 坐标
+                        // 这里是计算 z-y 轴上投影包围盒的 min、max 的 z 轴坐标与 va 的差值占 va-vb 的 z 轴长度的比例
+                        // 其实就是求 x-z 轴里与 dir 垂直的另一个轴上的投影，两条边相交的部分占 va-vb 总长度的比例
 						float tmin = (neia[k*2+0]-va[2]) / (vb[2]-va[2]);
 						float tmax = (neia[k*2+1]-va[2]) / (vb[2]-va[2]);
 						if (tmin > tmax)
 							dtSwap(tmin,tmax);
+						// 从 float 转换到 char，为了压缩空间吧
 						link->bmin = (unsigned char)(dtClamp(tmin, 0.0f, 1.0f)*255.0f);
 						link->bmax = (unsigned char)(dtClamp(tmax, 0.0f, 1.0f)*255.0f);
 					}
 					else if (dir == 2 || dir == 6)
 					{
+                        // z 轴方向，计算 x 轴比例
 						float tmin = (neia[k*2+0]-va[0]) / (vb[0]-va[0]);
 						float tmax = (neia[k*2+1]-va[0]) / (vb[0]-va[0]);
 						if (tmin > tmax)
@@ -469,7 +491,8 @@ void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int
 		// Skip off-mesh connections which start location could not be connected at all.
 		if (targetPoly->firstLink == DT_NULL_LINK)
 			continue;
-		
+
+		// 搜索范围
 		const float halfExtents[3] = { targetCon->rad, target->header->walkableClimb, targetCon->rad };
 		
 		// Find polygon to connect to.
@@ -585,12 +608,13 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 		dtVcopy(v, nearestPt);
 
 		// Link off-mesh connection to target poly.
+		// off-mesh poly 到 target poly 的 link
 		unsigned int idx = allocLink(tile);
 		if (idx != DT_NULL_LINK)
 		{
 			dtLink* link = &tile->links[idx];
-			link->ref = ref;
-			link->edge = (unsigned char)0;
+			link->ref = ref; // target poly ref
+			link->edge = (unsigned char)0; // start edge
 			link->side = 0xff;
 			link->bmin = link->bmax = 0;
 			// Add to linked list.
@@ -599,14 +623,15 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 		}
 
 		// Start end-point is always connect back to off-mesh connection. 
+        // target poly 到 off-mesh poly 的 link
 		unsigned int tidx = allocLink(tile);
 		if (tidx != DT_NULL_LINK)
 		{
 			const unsigned short landPolyIdx = (unsigned short)decodePolyIdPoly(ref);
 			dtPoly* landPoly = &tile->polys[landPolyIdx];
 			dtLink* link = &tile->links[tidx];
-			link->ref = base | (dtPolyRef)(con->poly);
-			link->edge = 0xff;
+			link->ref = base | (dtPolyRef)(con->poly); // off-mesh poly ref
+			link->edge = 0xff; // no edge
 			link->side = 0xff;
 			link->bmin = link->bmax = 0;
 			// Add to linked list.

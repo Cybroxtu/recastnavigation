@@ -527,6 +527,20 @@ bool dtCreateNavMeshData(dtNavMeshCreateParams* params, unsigned char** outData,
 			if (src[nvp+j] & 0x8000)
 			{
 				// Border or portal edge.
+				// 这里将方向由
+				//     1
+				//     ↑
+				// 0 ←   → 2
+				//     ↓
+				//     3
+				// 转换为
+                // 3   2   1
+                //   ↖ ↑ ↗
+                // 4 ←   → 0
+                //   ↙ ↓ ↘
+                // 5   6   7
+                // 应该是为了 0 为 x 轴正方向
+                // 后续 detour 中的方向需要注意，和 recast 中不同了
 				unsigned short dir = src[nvp+j] & 0xf;
 				if (dir == 0xf) // Border
 					p->neis[j] = 0;
@@ -542,6 +556,7 @@ bool dtCreateNavMeshData(dtNavMeshCreateParams* params, unsigned char** outData,
 			else
 			{
 				// Normal connection
+				// neis 中用 0 表示没有邻接关系，所以这里的多边形 id 需要加一
 				p->neis[j] = src[nvp+j]+1;
 			}
 			

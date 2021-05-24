@@ -25,8 +25,8 @@
 /// @ingroup crowd, detour
 class dtPathCorridor
 {
-	float m_pos[3];
-	float m_target[3];
+	float m_pos[3];         // 寻路实体当前所处的位置
+	float m_target[3];      // 寻路目标位置
 	
 	dtPolyRef* m_path;
 	int m_npath;

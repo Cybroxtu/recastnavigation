@@ -19,6 +19,8 @@
 #ifndef DETOURPROXIMITYGRID_H
 #define DETOURPROXIMITYGRID_H
 
+// 类似于九宫格一样，这是个用于计算接近的格子
+// 格子内会有多个 Item
 class dtProximityGrid
 {
 	float m_cellSize;
@@ -26,8 +28,8 @@ class dtProximityGrid
 	
 	struct Item
 	{
-		unsigned short id;
-		short x,y;
+		unsigned short id;      // agent idx
+		short x,y;              // cell coordinates
 		unsigned short next;
 	};
 	Item* m_pool;
@@ -37,7 +39,7 @@ class dtProximityGrid
 	unsigned short* m_buckets;
 	int m_bucketsSize;
 	
-	int m_bounds[4];
+	int m_bounds[4];            // 包围盒，按 grid 内的所有 item 进行计算
 	
 public:
 	dtProximityGrid();

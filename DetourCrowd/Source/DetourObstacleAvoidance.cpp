@@ -522,23 +522,24 @@ int dtObstacleAvoidanceQuery::sampleVelocityAdaptive(const float* pos, const flo
 		debug->reset();
 
 	// Build sampling pattern aligned to desired velocity.
-	float pat[(DT_MAX_PATTERN_DIVS*DT_MAX_PATTERN_RINGS+1)*2];
+	float pat[(DT_MAX_PATTERN_DIVS*DT_MAX_PATTERN_RINGS+1)*2]; // ???
 	int npat = 0;
 
 	const int ndivs = (int)m_params.adaptiveDivs;
 	const int nrings= (int)m_params.adaptiveRings;
 	const int depth = (int)m_params.adaptiveDepth;
 	
-	const int nd = dtClamp(ndivs, 1, DT_MAX_PATTERN_DIVS);
-	const int nr = dtClamp(nrings, 1, DT_MAX_PATTERN_RINGS);
-	const float da = (1.0f/nd) * DT_PI*2;
+	const int nd = dtClamp(ndivs, 1, DT_MAX_PATTERN_DIVS); // ? 把一个圆划分成最多32个扇区？
+	const int nr = dtClamp(nrings, 1, DT_MAX_PATTERN_RINGS); // ? 把圆划分成最多里外四个圈层？
+	const float da = (1.0f/nd) * DT_PI*2; // ? 一个扇区的角度就是 da
 	const float ca = cosf(da);
 	const float sa = sinf(da);
 
 	// desired direction
-	float ddir[6];
+	float ddir[6]; // dvel[0], dvel[1], dvel[2], rvel[0], rvel[1], rvel[2]
 	dtVcopy(ddir, dvel);
 	dtNormalize2D(ddir);
+	// ? 为什么要旋转 da/2 ？
 	dtRorate2D (ddir+3, ddir, da*0.5f); // rotated by da/2
 
 	// Always add sample at zero
@@ -548,7 +549,12 @@ int dtObstacleAvoidanceQuery::sampleVelocityAdaptive(const float* pos, const flo
 	
 	for (int j = 0; j < nr; ++j)
 	{
-		const float r = (float)(nr-j)/(float)nr;
+	    // r = 1、3/4、2/4、1/4
+		const float r = (float)(nr-j)/(float)nr; // ? r 是半径？
+		// nr = 4
+		// j == 0、2 的时候，取的是ddir[0]和ddir[2]，也就是 dvel
+        // j == 1、3 的时候，取的是ddir[3]和ddir[5]，也就是 rvel
+        // 为什么有这个顺序差异？
 		pat[npat*2+0] = ddir[(j%2)*3] * r;
 		pat[npat*2+1] = ddir[(j%2)*3+2] * r;
 		float* last1 = pat + npat*2;
@@ -569,7 +575,7 @@ int dtObstacleAvoidanceQuery::sampleVelocityAdaptive(const float* pos, const flo
 			npat += 2;
 		}
 
-		if ((nd&1) == 0)
+		if ((nd&1) == 0) // 双数
 		{
 			pat[npat*2+2] = last2[0]*ca - last2[1]*sa;
 			pat[npat*2+3] = last2[0]*sa + last2[1]*ca;

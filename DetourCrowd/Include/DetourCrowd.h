@@ -122,12 +122,15 @@ struct dtCrowdAgent
 	unsigned char state;
 
 	/// True if the agent has valid path (targetState == DT_CROWDAGENT_TARGET_VALID) and the path does not lead to the requested position, else false.
+	// 寻路路径是否已经完整计算
 	bool partial;
 
 	/// The path corridor the agent is using.
+	// 路径中间点
 	dtPathCorridor corridor;
 
 	/// The local boundary data for the agent.
+	// 应该是 agent 个体拥有的碰撞体积？
 	dtLocalBoundary boundary;
 	
 	/// Time since the agent's path corridor was optimized.
@@ -202,12 +205,12 @@ struct dtCrowdAgentDebugInfo
 /// @ingroup crowd
 class dtCrowd
 {
-	int m_maxAgents;
+	int m_maxAgents;                        // 最大实体数量
 	dtCrowdAgent* m_agents;
-	dtCrowdAgent** m_activeAgents;
-	dtCrowdAgentAnimation* m_agentAnims;
-	
-	dtPathQueue m_pathq;
+	dtCrowdAgent** m_activeAgents;          // 激活中的实体指针
+	dtCrowdAgentAnimation* m_agentAnims;    // ?动画？
+
+	dtPathQueue m_pathq;                    // 临时路径队列
 
 	dtObstacleAvoidanceParams m_obstacleQueryParams[DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS];
 	dtObstacleAvoidanceQuery* m_obstacleQuery;
@@ -221,14 +224,18 @@ class dtCrowd
 
 	dtQueryFilter m_filters[DT_CROWD_MAX_QUERY_FILTER_TYPE];
 
-	float m_maxAgentRadius;
+	float m_maxAgentRadius;                 // 实体的最大半径
 
-	int m_velocitySampleCount;
+	int m_velocitySampleCount;              // ???
 
 	dtNavMeshQuery* m_navquery;
 
 	void updateTopologyOptimization(dtCrowdAgent** agents, const int nagents, const float dt);
 	void updateMoveRequest(const float dt);
+
+	/// 检查移动中的 agent 的 path corridor 的第一个 polyRef 是否有效
+	/// 如果无效的话，根据当前位置找到最近的一个 poly，并将自身位置修正到 nearestPos
+	/// 什么情况下会用到这个函数呢？
 	void checkPathValidity(dtCrowdAgent** agents, const int nagents, const float dt);
 
 	inline int getAgentIndex(const dtCrowdAgent* agent) const  { return (int)(agent - m_agents); }

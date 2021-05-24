@@ -22,6 +22,8 @@
 #include "DetourNavMeshQuery.h"
 
 
+// agent 的局部边界形状
+// 由 agent 一定范围内的 polygon wall segments 组成
 class dtLocalBoundary
 {
 	static const int MAX_LOCAL_SEGS = 8;
@@ -29,14 +31,19 @@ class dtLocalBoundary
 	
 	struct Segment
 	{
+	    // wall segment 的起始、结束点
 		float s[6];	///< Segment start/end
+		// agent npos 与线段的距离的平方
 		float d;	///< Distance for pruning.
 	};
 	
-	float m_center[3];
+	float m_center[3]; // agent npos
+
+	// agent 一定范围内多边形的 wall segments
 	Segment m_segs[MAX_LOCAL_SEGS];
 	int m_nsegs;
-	
+
+	// agent 一定范围内的多边形
 	dtPolyRef m_polys[MAX_LOCAL_POLYS];
 	int m_npolys;
 

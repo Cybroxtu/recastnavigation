@@ -61,7 +61,7 @@ static void integrate(dtCrowdAgent* ag, const float dt)
 	// Fake dynamic constraint.
 	const float maxDelta = ag->params.maxAcceleration * dt;
 	float dv[3];
-	dtVsub(dv, ag->nvel, ag->vel);
+	dtVsub(dv, ag->nvel, ag->vel); // 预期速度与实际速度的差值
 	float ds = dtVlen(dv);
 	if (ds > maxDelta)
 		dtVscale(dv, dv, maxDelta/ds);
@@ -69,9 +69,9 @@ static void integrate(dtCrowdAgent* ag, const float dt)
 	
 	// Integrate
 	if (dtVlen(ag->vel) > 0.0001f)
-		dtVmad(ag->npos, ag->npos, ag->vel, dt);
+		dtVmad(ag->npos, ag->npos, ag->vel, dt); // 根据速度和时间修改实体位置
 	else
-		dtVset(ag->vel,0,0,0);
+		dtVset(ag->vel,0,0,0); // 速度降为 0
 }
 
 static bool overOffmeshConnection(const dtCrowdAgent* ag, const float radius)
@@ -1063,6 +1063,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 	updateTopologyOptimization(agents, nagents, dt);
 	
 	// Register agents to proximity grid.
+	// 将所有的 agents 添加到格子里，供后续碰撞使用
 	m_grid->clear();
 	for (int i = 0; i < nagents; ++i)
 	{
@@ -1081,6 +1082,9 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 
 		// Update the collision boundary after certain distance has been passed or
 		// if it has become invalid.
+		// local boundary 由 agent 周围一定范围内多边形的 wall segment 框起来的范围
+		// 当 agent 移动出一小段距离或者其中所属的多边形不再有效后，需要更新 local boundary 的位置
+		// 这个应该是用来判断 agent 周围会发生碰撞的边界
 		const float updateThr = ag->params.collisionQueryRange*0.25f;
 		if (dtVdist2DSqr(ag->npos, ag->boundary.getCenter()) > dtSqr(updateThr) ||
 			!ag->boundary.isValid(m_navquery, &m_filters[ag->params.queryFilterType]))
@@ -1088,7 +1092,9 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			ag->boundary.update(ag->corridor.getFirstPoly(), ag->npos, ag->params.collisionQueryRange,
 								m_navquery, &m_filters[ag->params.queryFilterType]);
 		}
+
 		// Query neighbour agents
+		// 更新该实体周围邻居实体的信息，缓存到 ag->neis 中
 		ag->nneis = getNeighbours(ag->npos, ag->params.height, ag->params.collisionQueryRange,
 								  ag, ag->neis, DT_CROWDAGENT_MAX_NEIGHBOURS,
 								  agents, nagents, m_grid);
@@ -1103,10 +1109,12 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 		
 		if (ag->state != DT_CROWDAGENT_STATE_WALKING)
 			continue;
+		// 没有移动目标，且不处于速度移动模式
 		if (ag->targetState == DT_CROWDAGENT_TARGET_NONE || ag->targetState == DT_CROWDAGENT_TARGET_VELOCITY)
 			continue;
 		
 		// Find corners for steering
+		// 在寻路路径中找到下4个拐角处
 		ag->ncorners = ag->corridor.findCorners(ag->cornerVerts, ag->cornerFlags, ag->cornerPolys,
 												DT_CROWDAGENT_MAX_CORNERS, m_navquery, &m_filters[ag->params.queryFilterType]);
 		
@@ -1162,7 +1170,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 				anim->polyRef = refs[1];
 				anim->active = true;
 				anim->t = 0.0f;
-				anim->tmax = (dtVdist2D(anim->startPos, anim->endPos) / ag->params.maxSpeed) * 0.5f;
+				anim->tmax = (dtVdist2D(anim->startPos, anim->endPos) / ag->params.maxSpeed) * 0.5f; // why 0.5?
 				
 				ag->state = DT_CROWDAGENT_STATE_OFFMESH;
 				ag->ncorners = 0;
@@ -1185,9 +1193,11 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			continue;
 		if (ag->targetState == DT_CROWDAGENT_TARGET_NONE)
 			continue;
-		
+
+		// 期望速度（方向+速度大小）
 		float dvel[3] = {0,0,0};
 
+		// 计算 steer 向量
 		if (ag->targetState == DT_CROWDAGENT_TARGET_VELOCITY)
 		{
 			dtVcopy(dvel, ag->targetPos);
@@ -1210,6 +1220,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 		}
 
 		// Separation
+		// 计算群体之间的分散斥力，远离每一个邻近实体
 		if (ag->params.updateFlags & DT_CROWD_SEPARATION)
 		{
 			const float separationDist = ag->params.collisionQueryRange; 
@@ -1224,23 +1235,28 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 				const dtCrowdAgent* nei = &m_agents[ag->neis[j].idx];
 				
 				float diff[3];
-				dtVsub(diff, ag->npos, nei->npos);
+				dtVsub(diff, ag->npos, nei->npos); // 计算与该相邻实体的反方向向量
 				diff[1] = 0;
 				
-				const float distSqr = dtVlenSqr(diff);
+				const float distSqr = dtVlenSqr(diff); // 水平距离^2
 				if (distSqr < 0.00001f)
 					continue;
 				if (distSqr > dtSqr(separationDist))
 					continue;
 				const float dist = dtMathSqrtf(distSqr);
+				// 1.0f - 实际距离 除以 分离距离，得到的是需要远离的距离比例
+				// 乘以权重得到实际需要远离的权重，再除以距离，得到一个单位距离的权重系数
 				const float weight = separationWeight * (1.0f - dtSqr(dist*invSeparationDist));
-				
+
+				// 向量diff乘以单位距离系数
 				dtVmad(disp, disp, diff, weight/dist);
 				w += 1.0f;
 			}
 			
 			if (w > 0.0001f)
 			{
+			    // disp 是所有邻近实体的排斥向量的总和，除以 w 获取单位排斥向量大小，也就是斥力
+			    // 再把斥力加到 dvel 上
 				// Adjust desired velocity.
 				dtVmad(dvel, dvel, disp, 1.0f/w);
 				// Clamp desired velocity to desired speed.
@@ -1255,7 +1271,8 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 		dtVcopy(ag->dvel, dvel);
 	}
 	
-	// Velocity planning.	
+	// Velocity planning.
+	// RVO 避障处理，调整速度大小与方向
 	for (int i = 0; i < nagents; ++i)
 	{
 		dtCrowdAgent* ag = agents[i];
@@ -1268,6 +1285,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			m_obstacleQuery->reset();
 			
 			// Add neighbours as obstacles.
+			// 所有的邻近实体均视为障碍物
 			for (int j = 0; j < ag->nneis; ++j)
 			{
 				const dtCrowdAgent* nei = &m_agents[ag->neis[j].idx];
@@ -1275,10 +1293,11 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			}
 
 			// Append neighbour segments as obstacles.
+			// 将自己的局部边界也视为障碍物
 			for (int j = 0; j < ag->boundary.getSegmentCount(); ++j)
 			{
 				const float* s = ag->boundary.getSegment(j);
-				if (dtTriArea2D(ag->npos, s, s+3) < 0.0f)
+				if (dtTriArea2D(ag->npos, s, s+3) < 0.0f) // ??
 					continue;
 				m_obstacleQuery->addSegment(s, s+3);
 			}
@@ -1313,6 +1332,8 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 	}
 
 	// Integrate.
+	// 修改实际速度、修改实体位置
+	// 先修改 npos，然后再处理碰撞？
 	for (int i = 0; i < nagents; ++i)
 	{
 		dtCrowdAgent* ag = agents[i];
@@ -1323,7 +1344,12 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 	
 	// Handle collisions.
 	static const float COLLISION_RESOLVE_FACTOR = 0.7f;
-	
+
+	// 为什么要迭代 4 次？COLLISION_RESOLVE_FACTOR = 2.0f ，一次搞定不行吗？
+	// 猜测：因为碰撞避让是一个动态的过程，碰撞避让的位移本身便会影响到碰撞避让的结果
+	// (一种情况：两个实体 A、B 本身无需相互避让，但是因为 A 要避让 C，B 要避让 D，导致 A、B 两个实体也进入了避让范围)
+	// 所以这里单次迭代中的位移量选取一个较小的值，然后分多次进行迭代
+	// 4 次应该是个性能与效果的折中量
 	for (int iter = 0; iter < 4; ++iter)
 	{
 		for (int i = 0; i < nagents; ++i)
@@ -1338,6 +1364,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			
 			float w = 0;
 
+			// 计算当前实体远离邻近碰撞实体的向量
 			for (int j = 0; j < ag->nneis; ++j)
 			{
 				const dtCrowdAgent* nei = &m_agents[ag->neis[j].idx];
@@ -1348,25 +1375,33 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 				diff[1] = 0;
 				
 				float dist = dtVlenSqr(diff);
-				if (dist > dtSqr(ag->params.radius + nei->params.radius))
+				if (dist > dtSqr(ag->params.radius + nei->params.radius)) // 没有碰撞，直接跳过
 					continue;
 				dist = dtMathSqrtf(dist);
-				float pen = (ag->params.radius + nei->params.radius) - dist;
+				float pen = (ag->params.radius + nei->params.radius) - dist; // 碰撞距离，也就是重合部分的长度
 				if (dist < 0.0001f)
 				{
+				    // 重叠的情况，必须确定一个散开方向
 					// Agents on top of each other, try to choose diverging separation directions.
 					if (idx0 > idx1)
-						dtVset(diff, -ag->dvel[2],0,ag->dvel[0]);
+						dtVset(diff, -ag->dvel[2],0,ag->dvel[0]); // 向左旋转90°
 					else
-						dtVset(diff, ag->dvel[2],0,-ag->dvel[0]);
-					pen = 0.01f;
+						dtVset(diff, ag->dvel[2],0,-ag->dvel[0]); // 向右旋转90°
+					pen = 0.01f; // 重叠的情况，只避让一个极小的距离，等下一次迭代再拉开距离
+					// 注意这里采用的 dvel
+					// 如果两个重合实体是静止的，那么计算出的 diff 是 (0,0,0)
+					// 也就是它们依旧会保持重叠，直到开始移动
 				}
 				else
 				{
+				    // 1.0f/dist - 转换为单位距离系数
+				    // pen*0.5f  - 碰撞长度的一半
+				    // COLLISION_RESOLVE_FACTOR - 用于修正碰撞避让距离的系数，这里是 0.7f
+				    //  也就是让每次的修正值小于碰撞距离的一半
 					pen = (1.0f/dist) * (pen*0.5f) * COLLISION_RESOLVE_FACTOR;
 				}
 				
-				dtVmad(ag->disp, ag->disp, diff, pen);			
+				dtVmad(ag->disp, ag->disp, diff, pen); // 向远离碰撞实体的方向移动一半的碰撞长度
 				
 				w += 1.0f;
 			}
@@ -1377,7 +1412,8 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 				dtVscale(ag->disp, ag->disp, iw);
 			}
 		}
-		
+
+		// 实际应用碰撞避让的位移操作
 		for (int i = 0; i < nagents; ++i)
 		{
 			dtCrowdAgent* ag = agents[i];

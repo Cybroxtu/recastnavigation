@@ -97,6 +97,7 @@ void dtLocalBoundary::update(dtPolyRef ref, const float* pos, const float collis
 	dtVcopy(m_center, pos);
 	
 	// First query non-overlapping polygons.
+	// 获取以 pos 为中心点，附近距离在 collisionQueryRange 以内的可通过多边形
 	navquery->findLocalNeighbourhood(ref, pos, collisionQueryRange,
 									 filter, m_polys, 0, &m_npolys, MAX_LOCAL_POLYS);
 	
@@ -106,6 +107,7 @@ void dtLocalBoundary::update(dtPolyRef ref, const float* pos, const float collis
 	int nsegs = 0;
 	for (int j = 0; j < m_npolys; ++j)
 	{
+	    // 这里获取多边形的不可通过边（边的另一面没有可达多边形）
 		navquery->getPolyWallSegments(m_polys[j], filter, segs, 0, &nsegs, MAX_SEGS_PER_POLY);
 		for (int k = 0; k < nsegs; ++k)
 		{
@@ -115,6 +117,9 @@ void dtLocalBoundary::update(dtPolyRef ref, const float* pos, const float collis
 			const float distSqr = dtDistancePtSegSqr2D(pos, s, s+3, tseg);
 			if (distSqr > dtSqr(collisionQueryRange))
 				continue;
+			// 将不可通过边添加到局部边界集合中
+			// 供后续碰撞判断使用
+			// 后续碰撞判断应该是使用其它实体的包围盒、不可通过边来共同确定回避速度与方向的
 			addSegment(distSqr, s);
 		}
 	}
