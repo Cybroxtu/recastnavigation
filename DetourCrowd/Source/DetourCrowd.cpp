@@ -1333,7 +1333,6 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 
 	// Integrate.
 	// 修改实际速度、修改实体位置
-	// 先修改 npos，然后再处理碰撞？
 	for (int i = 0; i < nagents; ++i)
 	{
 		dtCrowdAgent* ag = agents[i];
@@ -1413,7 +1412,6 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			}
 		}
 
-		// 实际应用碰撞避让的位移操作
 		for (int i = 0; i < nagents; ++i)
 		{
 			dtCrowdAgent* ag = agents[i];
@@ -1423,7 +1421,8 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			dtVadd(ag->npos, ag->npos, ag->disp);
 		}
 	}
-	
+
+    // 实际应用碰撞避让的位移操作
 	for (int i = 0; i < nagents; ++i)
 	{
 		dtCrowdAgent* ag = agents[i];
@@ -1467,12 +1466,12 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 		// Update position
 		const float ta = anim->tmax*0.15f;
 		const float tb = anim->tmax;
-		if (anim->t < ta)
+		if (anim->t < ta) // 前 15% 的时间，用于将实体移动到 offmesh 的起始位置
 		{
 			const float u = tween(anim->t, 0.0, ta);
 			dtVlerp(ag->npos, anim->initPos, anim->startPos, u);
 		}
-		else
+		else // 后 85% 的时间，将实体从 offmesh 的起始位置移动到结束位置
 		{
 			const float u = tween(anim->t, ta, tb);
 			dtVlerp(ag->npos, anim->startPos, anim->endPos, u);

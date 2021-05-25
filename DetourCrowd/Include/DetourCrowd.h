@@ -29,7 +29,7 @@
 /// The maximum number of neighbors that a crowd agent can take into account
 /// for steering decisions.
 /// @ingroup crowd
-static const int DT_CROWDAGENT_MAX_NEIGHBOURS = 6;
+static const int DT_CROWDAGENT_MAX_NEIGHBOURS = 32;
 
 /// The maximum number of corners a crowd agent will look ahead in the path.
 /// This value is used for sizing the crowd agent corner buffers.
@@ -43,7 +43,7 @@ static const int DT_CROWDAGENT_MAX_CORNERS = 4;
 /// @ingroup crowd
 /// @see dtObstacleAvoidanceParams, dtCrowd::setObstacleAvoidanceParams(), dtCrowd::getObstacleAvoidanceParams(),
 ///		 dtCrowdAgentParams::obstacleAvoidanceType
-static const int DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS = 8;
+static const int DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS = 32;
 
 /// The maximum number of query filter types supported by the crowd manager.
 /// @ingroup crowd
@@ -79,11 +79,14 @@ struct dtCrowdAgentParams
 	float maxSpeed;						///< Maximum allowed speed. [Limit: >= 0]
 
 	/// Defines how close a collision element must be before it is considered for steering behaviors. [Limits: > 0]
+	// 1. 用于查找范围内的邻近实体
+	// 2. 用于计算斥力的基准距离
 	float collisionQueryRange;
 
 	float pathOptimizationRange;		///< The path visibility optimization range. [Limit: > 0]
 
 	/// How aggresive the agent manager should be at avoiding collisions with this agent. [Limit: >= 0]
+	// 单位距离的斥力权重系数
 	float separationWeight;
 
 	/// Flags that impact steering behavior. (See: #UpdateFlags)
@@ -187,8 +190,18 @@ struct dtCrowdAgentAnimation
 /// @see dtCrowdAgentParams::updateFlags
 enum UpdateFlags
 {
+    // steering 是否开启预测转弯
+    // 不开启时，实体总是朝着下一个路点直线移动
+    // 开启后，实体移动时会考虑到下下个路点的方向，会形成更圆滑一些的路线
 	DT_CROWD_ANTICIPATE_TURNS = 1,
+	// 是否开启 vo 主动碰撞避让
+	// 不开启的话，遇到别的实体，会直接怼上去，靠被动的碰撞检测使两者分开
 	DT_CROWD_OBSTACLE_AVOIDANCE = 2,
+	// 是否让一群移动的邻近实体在移动时尽量散开
+	// 从实际表现上来看，这个散开的效果不是特别理想，有时候邻近实体的距离和位置会导致平均斥力较小
+	// 导致拥挤地方并不做散开的行为
+	// 按理说这种情况，内部的实体原地不动，应该从外部的实体开始向外散开，然后内部的实体有了移动空间或者斥力变大再接着散开才对
+	// 具体为什么效果不好，有待研究
 	DT_CROWD_SEPARATION = 4,
 	DT_CROWD_OPTIMIZE_VIS = 8,			///< Use #dtPathCorridor::optimizePathVisibility() to optimize the agent path.
 	DT_CROWD_OPTIMIZE_TOPO = 16,		///< Use dtPathCorridor::optimizePathTopology() to optimize the agent path.

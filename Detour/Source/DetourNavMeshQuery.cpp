@@ -1764,7 +1764,7 @@ dtStatus dtNavMeshQuery::appendPortals(const int startIdx, const int endIdx, con
 
 /// @par
 /// 
-/// This method peforms what is often called 'string pulling'.
+/// This method performs what is often called 'string pulling'.
 ///
 /// The start position is clamped to the first polygon in the path, and the 
 /// end position is clamped to the last. So the start and end positions should 
@@ -1817,8 +1817,11 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 	if (stat != DT_IN_PROGRESS)
 		return stat;
 	
-	if (pathSize > 1)
+	if (pathSize > 1) // 路径多边形数量大于1，此时存在中间路径，使用漏斗算法计算直线路径
 	{
+	    // portalApex - 漏斗顶点
+	    // portalLeft - 漏斗左顶点
+	    // portalRight - 漏斗右顶点
 		float portalApex[3], portalLeft[3], portalRight[3];
 		dtVcopy(portalApex, closestStartPos);
 		dtVcopy(portalLeft, portalApex);
@@ -1826,16 +1829,18 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 		int apexIndex = 0;
 		int leftIndex = 0;
 		int rightIndex = 0;
-		
+
+		// 用来判断 offmesh link
 		unsigned char leftPolyType = 0;
 		unsigned char rightPolyType = 0;
-		
+
+		// 从第一个 poly 开始迭代
 		dtPolyRef leftPolyRef = path[0];
 		dtPolyRef rightPolyRef = path[0];
 		
 		for (int i = 0; i < pathSize; ++i)
 		{
-			float left[3], right[3];
+			float left[3], right[3]; // 当前迭代中的漏斗左右顶点
 			unsigned char toType;
 			
 			if (i+1 < pathSize)
@@ -1843,10 +1848,12 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 				unsigned char fromType; // fromType is ignored.
 
 				// Next portal.
+				// 获取 多边形 i 到 多边形 i+1 共同边(portal)的两个端点
 				if (dtStatusFailed(getPortalPoints(path[i], path[i+1], left, right, fromType, toType)))
 				{
 					// Failed to get portal points, in practice this means that path[i+1] is invalid polygon.
 					// Clamp the end point to path[i], and return the path so far.
+					// 什么情况下 path[i+1] 会 invalid ？
 					
 					if (dtStatusFailed(closestPointOnPolyBoundary(path[i], endPos, closestEndPos)))
 					{
@@ -1858,6 +1865,12 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 					if (options & (DT_STRAIGHTPATH_AREA_CROSSINGS | DT_STRAIGHTPATH_ALL_CROSSINGS))
 					{
 						// Ignore status return value as we're just about to return anyway.
+
+						// 当 DT_STRAIGHTPATH_AREA_CROSSINGS | DT_STRAIGHTPATH_ALL_CROSSINGS 开启时，
+						// 从旧漏斗顶点到新的漏斗顶点之间的 corridor，会计算直线路径中最后一个点到结束点的连线与 corridor 中所有 portal 边的交点
+						// 并且添加到直线路径中。
+						// 经测试，这会让移动变得略微不自然，用处是什么？
+						// DT_STRAIGHTPATH_AREA_CROSSINGS 仅当两个 poly 的 area 发生变化时才添加
 						appendPortals(apexIndex, i, closestEndPos, path,
 											 straightPath, straightPathFlags, straightPathRefs,
 											 straightPathCount, maxStraightPath, options);
@@ -1889,8 +1902,12 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 			}
 			
 			// Right vertex.
+			// 将漏斗右端点向下一个poly延伸，面积小于等于0，代表延伸点在漏斗右边界以内
+			// 面积大于0时，延伸点在漏斗以外，不能使用
 			if (dtTriArea2D(portalApex, portalRight, right) <= 0.0f)
 			{
+			    // 面积大 0，确保右边延伸点在漏斗左边界的右侧
+			    // 此时右延伸点一定在漏斗中，可以更新漏斗右端点
 				if (dtVequal(portalApex, portalRight) || dtTriArea2D(portalApex, portalLeft, right) > 0.0f)
 				{
 					dtVcopy(portalRight, right);
@@ -1898,7 +1915,7 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 					rightPolyType = toType;
 					rightIndex = i;
 				}
-				else
+				else // 否则代表当前的漏斗右侧延伸点会越过漏斗左边界
 				{
 					// Append portals along the current straight path segment.
 					if (options & (DT_STRAIGHTPATH_AREA_CROSSINGS | DT_STRAIGHTPATH_ALL_CROSSINGS))
@@ -1910,7 +1927,7 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 							return stat;					
 					}
 				
-					dtVcopy(portalApex, portalLeft);
+					dtVcopy(portalApex, portalLeft); // 此时将漏斗左端点作为新的漏斗顶点，添加到路径中
 					apexIndex = leftIndex;
 					
 					unsigned char flags = 0;
@@ -1926,7 +1943,9 @@ dtStatus dtNavMeshQuery::findStraightPath(const float* startPos, const float* en
 										straightPathCount, maxStraightPath);
 					if (stat != DT_IN_PROGRESS)
 						return stat;
-					
+
+					// 为什么要将左右端点重置为漏斗顶点呢？
+					// 此时右端点应该还能继续用，可以省掉一次计算？
 					dtVcopy(portalLeft, portalApex);
 					dtVcopy(portalRight, portalApex);
 					leftIndex = apexIndex;

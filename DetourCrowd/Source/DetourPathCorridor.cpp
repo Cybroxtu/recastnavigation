@@ -326,9 +326,9 @@ void dtPathCorridor::optimizePathVisibility(const float* next, const float pathO
 	
 	// Adjust ray length.
 	float delta[3];
-	dtVsub(delta, goal, m_pos);
-	dtVmad(goal, m_pos, delta, pathOptimizationRange/dist);
-	
+	dtVsub(delta, goal, m_pos); // delta 是从当前位置指向目标位置的向量
+	dtVmad(goal, m_pos, delta, pathOptimizationRange/dist); // s: [1, pathOptimizationRange/100)
+
 	static const int MAX_RES = 32;
 	dtPolyRef res[MAX_RES];
 	float t, norm[3];
